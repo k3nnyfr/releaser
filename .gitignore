@@ -1,0 +1,8 @@
+# build output
+/bin/
+releaser-*
+
+# test coverage
+coverage.out
+coverage.html
+

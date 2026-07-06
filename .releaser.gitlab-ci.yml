@@ -1,0 +1,49 @@
+# releaser — GitLab CI component template
+#
+# Usage in your project's .gitlab-ci.yml:
+#
+#   include:
+#     - project: 'your-group/releaser'
+#       ref: main
+#       file: '.releaser.gitlab-ci.yml'
+#
+#   stages:
+#     - build
+#     - test
+#     - release
+#
+#   release:
+#     extends: .releaser:release
+#
+# Required CI variable (set at project or group level):
+#   RELEASE_TOKEN — a GitLab project/group access token with scopes:
+#                   api + write_repository
+#                   (do NOT use CI_JOB_TOKEN — it cannot push tags back)
+
+.releaser:release:
+  stage: release
+  image: ${RELEASER_IMAGE:-registry.example.com/releaser:latest}
+
+  variables:
+    # Override in your job to change defaults
+    RELEASER_EXTRA_ARGS: ""     # e.g. "--no-push" or "--tag-prefix ''"
+    GIT_DEPTH: 0                # full clone — required to find ancestor tags
+
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /^release\/.+$/
+
+  before_script:
+    # Configure git to push back using the release token over HTTPS.
+    # CI_JOB_TOKEN cannot push tags, so a dedicated access token is required.
+    - git remote set-url origin
+        "https://oauth2:${RELEASE_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+    - git config user.email "${GITLAB_USER_EMAIL:-ci@releaser}"
+    - git config user.name  "${GITLAB_USER_NAME:-Releaser CI}"
+
+  script:
+    - releaser
+        --branch "$CI_COMMIT_BRANCH"
+        $RELEASER_EXTRA_ARGS
+
+  environment:
+    name: release/$CI_COMMIT_BRANCH

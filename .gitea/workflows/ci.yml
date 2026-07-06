@@ -1,0 +1,40 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+
+jobs:
+  ci:
+    name: vet, staticcheck, test, build
+    runs-on: ubuntu-latest
+    container:
+      image: golang:1.26-alpine
+
+    steps:
+      - name: Install tools
+        run: apk add --no-cache git
+
+      - name: Checkout
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SERVER_URL: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref_name }}
+        run: |
+          git clone --depth 1 --branch "$REF" \
+            "$(echo "$SERVER_URL" | sed "s|https://|https://oauth2:${TOKEN}@|")/${REPO}.git" .
+
+      - name: vet
+        run: go vet ./...
+
+      - name: staticcheck
+        run: go tool staticcheck ./...
+
+      - name: test
+        run: go test ./...
+
+      - name: build
+        run: go build ./cmd/...

@@ -1,0 +1,37 @@
+# .releaser.yml — configuration for git.k3nny.fr/releaser
+# All fields are optional. Uncomment and adjust what you need.
+# CLI flags always take precedence over values set here.
+
+git:
+  # Prefix prepended to every version tag.
+  # tag_prefix: "v"
+
+  # Regex that identifies release branches. Must contain exactly two capture
+  # groups: group 1 = major version, group 2 = minor version.
+  # branch_pattern: "^(?:.*/)?release/(\\d+)\\.(\\d+)$"
+
+  # Template for the version-bump commit message.
+  # {version} is replaced with the full tag name (e.g. "v1.2.3").
+  # commit_message: "chore(release): {version} [skip ci]"
+
+  # Override the git commit author. When omitted, releaser reads user.name
+  # and user.email from the repository's git config.
+  # author_name: ""
+  # author_email: ""
+
+maven:
+  # Path to pom.xml, relative to the repository root.
+  # pom_path: "pom.xml"
+
+gitlab:
+  # GitLab instance URL. Falls back to the CI_SERVER_URL environment variable.
+  # url: "https://gitlab.example.com"
+
+  # Personal or CI access token with api scope.
+  # Falls back to the GITLAB_TOKEN environment variable.
+  # Tip: never commit a real token here — use the environment variable instead.
+  # token: ""
+
+  # Numeric project ID or "namespace/project" path.
+  # Falls back to CI_PROJECT_ID, then CI_PROJECT_PATH environment variables.
+  # project: ""

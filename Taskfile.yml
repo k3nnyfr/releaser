@@ -1,0 +1,107 @@
+version: "3"
+
+vars:
+  BIN: ./bin/releaser
+  PKG: ./...
+  FUZZ_TIME: 30s
+
+tasks:
+  default:
+    desc: List available tasks
+    silent: true
+    cmds:
+      - task --list
+
+  build:
+    desc: Build the binary to ./bin/releaser
+    cmds:
+      - mkdir -p bin
+      - CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o {{.BIN}} ./cmd
+    sources:
+      - "**/*.go"
+      - go.mod
+    generates:
+      - "{{.BIN}}"
+
+  run:
+    desc: Build and run releaser (pass args with -- e.g. task run -- --dry-run)
+    deps: [build]
+    cmds:
+      - "{{.BIN}} {{.CLI_ARGS}}"
+
+  test:
+    desc: Run all tests (seed corpus only, no fuzzing)
+    cmds:
+      - go test {{.PKG}}
+
+  cov:
+    desc: Run tests with coverage and open HTML report
+    cmds:
+      - go test -coverprofile=coverage.out {{.PKG}}
+      - go tool cover -html=coverage.out -o coverage.html
+      - echo "Coverage report written to coverage.html"
+
+  cov:text:
+    desc: Run tests with per-function coverage in terminal
+    cmds:
+      - go test -coverprofile=coverage.out {{.PKG}}
+      - go tool cover -func=coverage.out
+
+  lint:
+    desc: Run go vet
+    cmds:
+      - go vet {{.PKG}}
+
+  fmt:
+    desc: Format all Go source files
+    cmds:
+      - gofmt -w .
+
+  tidy:
+    desc: Tidy go.mod and go.sum
+    cmds:
+      - go mod tidy
+
+  fuzz:
+    desc: "Fuzz a target for FUZZ_TIME (default 30s). Usage: task fuzz PKG=./internal/commits TARGET=FuzzParse"
+    vars:
+      PKG: '{{.PKG | default "./internal/commits"}}'
+      TARGET: '{{.TARGET | default "FuzzParse"}}'
+    cmds:
+      - go test -fuzz={{.TARGET}} -fuzztime={{.FUZZ_TIME}} {{.PKG}}
+
+  fuzz:all:
+    desc: Run all fuzz seed corpora (same as test but explicit)
+    cmds:
+      - go test -run='^Fuzz' {{.PKG}}
+
+  ci:
+    desc: Full CI pipeline — tidy check, vet, test
+    cmds:
+      - task: tidy
+      - |
+        if git rev-parse --git-dir >/dev/null 2>&1 && ! git diff --quiet go.mod go.sum; then
+          echo "go.mod/go.sum not tidy — run: task tidy" >&2
+          exit 1
+        fi
+      - task: lint
+      - task: test
+
+  clean:
+    desc: Remove build artifacts and coverage files
+    cmds:
+      - rm -rf bin/ coverage.out coverage.html
+
+  docker:build:
+    desc: Build the Docker image
+    vars:
+      TAG: '{{.TAG | default "releaser:dev"}}'
+    cmds:
+      - docker build -t {{.TAG}} .
+
+  docker:run:
+    desc: Run the Docker image (pass args with -- )
+    vars:
+      TAG: '{{.TAG | default "releaser:dev"}}'
+    cmds:
+      - docker run --rm {{.TAG}} {{.CLI_ARGS}}
