@@ -211,6 +211,7 @@ func TestRunPomOverride(t *testing.T) {
 }
 
 func TestRunMissingPom(t *testing.T) {
+	// --pom points to a non-existent file: pom update is skipped, tag is still created.
 	_, dir := setupRepo(t)
 	addFile(t, dir, "x.go", "// fix")
 	repo, _ := gogit.PlainOpen(dir)
@@ -218,10 +219,38 @@ func TestRunMissingPom(t *testing.T) {
 	w.Add("x.go")
 	w.Commit("fix: patch", &gogit.CommitOptions{Author: testSig()})
 
-	// Use --pom to point to a non-existent file; keeps the working tree clean.
-	err := execCmd(t, "--branch", "release/1.2", "--repo", dir, "--pom", "nonexistent.xml")
-	if err == nil {
-		t.Fatal("expected error for missing pom.xml")
+	err := execCmd(t, "--no-push", "--branch", "release/1.2", "--repo", dir, "--pom", "nonexistent.xml")
+	if err != nil {
+		t.Fatalf("missing pom should be skipped, got error: %v", err)
+	}
+
+	// Tag must still have been created.
+	repo2, _ := gogit.PlainOpen(dir)
+	_, err = repo2.Tag("v1.2.0")
+	if err != nil {
+		t.Error("expected tag v1.2.0 to be created")
+	}
+}
+
+func TestRunNoPomAtDefaultPath(t *testing.T) {
+	// Repo with no pom.xml at the default path: runs without error, creates tag.
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addFile(t, dir, "main.go", "package main")
+	commitAll(t, repo, dir, "fix: initial")
+
+	err = execCmd(t, "--no-push", "--branch", "release/2.0", "--repo", dir)
+	if err != nil {
+		t.Fatalf("no pom.xml should not be an error: %v", err)
+	}
+
+	repo2, _ := gogit.PlainOpen(dir)
+	_, err = repo2.Tag("v2.0.0")
+	if err != nil {
+		t.Error("expected tag v2.0.0 to be created")
 	}
 }
 

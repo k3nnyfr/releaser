@@ -203,9 +203,15 @@ func run(o options) error {
 		return nil
 	}
 
-	// --- pom.xml (skipped with --tag-only) ---
-	if !o.tagOnly {
-		pomPath := filepath.Join(absRepo, cfg.Maven.PomPath)
+	// --- pom.xml (skipped with --tag-only or when the file does not exist) ---
+	pomPath := filepath.Join(absRepo, cfg.Maven.PomPath)
+	_, statErr := os.Stat(pomPath)
+	hasPom := !errors.Is(statErr, os.ErrNotExist)
+	if statErr != nil && hasPom {
+		return fmt.Errorf("check pom path: %w", statErr)
+	}
+
+	if !o.tagOnly && hasPom {
 		currentPomVersion, err := maven.ReadVersion(pomPath)
 		if err != nil {
 			return fmt.Errorf("read pom version: %w", err)
@@ -235,6 +241,8 @@ func run(o options) error {
 			return fmt.Errorf("commit pom.xml: %w", err)
 		}
 		fmt.Fprintf(os.Stderr, "info: committed: %s\n", commitMsg)
+	} else if !o.tagOnly && !hasPom {
+		fmt.Fprintln(os.Stderr, "info: no pom.xml found — skipping version bump commit")
 	}
 
 	// --- Git tag ---

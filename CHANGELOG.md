@@ -3,11 +3,12 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.4.1] - 2026-07-07
+## [0.4.2] - 2026-07-07
 
 ### Fixed
 
 - **CI build step** — `go build ./cmd/...` failed with "output already exists and is a directory" because Go tried to write a binary named `cmd`, conflicting with the source directory; fixed by passing `-o /dev/null`
+- **Optional pom.xml** — releaser no longer fails when `pom.xml` (or the configured `maven.pom_path`) does not exist; it logs a notice and proceeds directly to tag and push, making the tool usable in non-Maven projects
 
 ## [0.4.0] - 2026-07-07
 
