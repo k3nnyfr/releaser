@@ -460,6 +460,25 @@ func TestRunSkipGitLab(t *testing.T) {
 	}
 }
 
+func TestRunNoRelease(t *testing.T) {
+	_, dir := setupRepoWithRemote(t)
+	addFile(t, dir, "x.go", "// fix")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
+
+	// --no-release skips GitLab release even when credentials are configured
+	t.Setenv("CI_SERVER_URL", "https://gitlab.example.com")
+	t.Setenv("CI_PROJECT_ID", "42")
+	t.Setenv("GITLAB_TOKEN", "test-token")
+
+	err := execCmd(t, "--no-release", "--branch", "release/1.2", "--repo", dir)
+	if err != nil {
+		t.Fatalf("--no-release: unexpected error: %v", err)
+	}
+}
+
 func TestRunMissingToken(t *testing.T) {
 	_, dir := setupRepoWithRemote(t)
 	addFile(t, dir, "x.go", "// fix")

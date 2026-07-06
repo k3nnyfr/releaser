@@ -33,6 +33,7 @@ func newRootCmd() *cobra.Command {
 	var (
 		dryRun         bool
 		noPush         bool
+		noRelease      bool
 		noCommit       bool
 		tagOnly        bool
 		branchOverride string
@@ -62,6 +63,7 @@ func newRootCmd() *cobra.Command {
 				patternSet:     patternSet,
 				dryRun:         dryRun,
 				noPush:         noPush,
+				noRelease:      noRelease,
 				noCommit:       noCommit,
 				tagOnly:        tagOnly,
 			})
@@ -70,6 +72,7 @@ func newRootCmd() *cobra.Command {
 
 	root.Flags().BoolVar(&dryRun, "dry-run", false, "print next version without making changes")
 	root.Flags().BoolVar(&noPush, "no-push", false, "create commit and tag locally without pushing or creating a GitLab release")
+	root.Flags().BoolVar(&noRelease, "no-release", false, "push commit and tag but skip creating the GitLab release")
 	root.Flags().BoolVar(&noCommit, "no-commit", false, "update pom.xml but do not commit, tag, or push")
 	root.Flags().BoolVar(&tagOnly, "tag-only", false, "tag HEAD without updating pom.xml (assumes version was already committed)")
 	root.Flags().StringVar(&branchOverride, "branch", "", "override branch name detection (required in detached HEAD)")
@@ -101,6 +104,7 @@ type options struct {
 	patternSet     bool
 	dryRun         bool
 	noPush         bool
+	noRelease      bool
 	noCommit       bool
 	tagOnly        bool
 }
@@ -264,6 +268,10 @@ func run(o options) error {
 	fmt.Fprintln(os.Stderr, "info: pushed")
 
 	// --- GitLab release ---
+	if o.noRelease {
+		fmt.Printf("released %s\n", nextTag)
+		return nil
+	}
 	if cfg.GitLab.URL == "" || cfg.GitLab.Project == "" {
 		fmt.Fprintln(os.Stderr, "warning: GitLab URL or project not configured — skipping release creation")
 		fmt.Printf("released %s\n", nextTag)
