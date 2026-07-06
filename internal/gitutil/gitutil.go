@@ -3,6 +3,8 @@ package gitutil
 import (
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
 	"sort"
 	"time"
 
@@ -231,9 +233,17 @@ func CreateTag(repo *gogit.Repository, tagName string) error {
 }
 
 // Push pushes the given branch and tag to the "origin" remote.
-// If token is non-empty, HTTPS basic auth (oauth2/token) is used.
-// Passing an empty token lets go-git use the system credential helper or SSH agent.
+// When token is non-empty, go-git is used with HTTPS basic auth (oauth2/token) — suitable for CI.
+// When token is empty, the system git binary is invoked so that credential helpers,
+// SSH agents, and netrc are all available as they would be for a regular git push.
 func Push(repo *gogit.Repository, branchName, tagName, token string) error {
+	if token != "" {
+		return pushWithGoGit(repo, branchName, tagName, token)
+	}
+	return pushWithCLI(repo, branchName, tagName)
+}
+
+func pushWithGoGit(repo *gogit.Repository, branchName, tagName, token string) error {
 	remote, err := repo.Remote("origin")
 	if err != nil {
 		return fmt.Errorf("remote origin not found: %w", err)
@@ -244,16 +254,31 @@ func Push(repo *gogit.Repository, branchName, tagName, token string) error {
 			gitconfig.RefSpec(fmt.Sprintf("refs/heads/%s:refs/heads/%s", branchName, branchName)),
 			gitconfig.RefSpec(fmt.Sprintf("refs/tags/%s:refs/tags/%s", tagName, tagName)),
 		},
-	}
-
-	if token != "" {
-		opts.Auth = &githttp.BasicAuth{
+		Auth: &githttp.BasicAuth{
 			Username: "oauth2",
 			Password: token,
-		}
+		},
 	}
 
 	if err := remote.Push(opts); err != nil && !errors.Is(err, gogit.NoErrAlreadyUpToDate) {
+		return fmt.Errorf("git push: %w", err)
+	}
+	return nil
+}
+
+func pushWithCLI(repo *gogit.Repository, branchName, tagName string) error {
+	wt, err := repo.Worktree()
+	if err != nil {
+		return fmt.Errorf("get worktree: %w", err)
+	}
+
+	cmd := exec.Command("git", "-C", wt.Filesystem.Root(), "push", "origin",
+		fmt.Sprintf("HEAD:refs/heads/%s", branchName),
+		fmt.Sprintf("refs/tags/%s:refs/tags/%s", tagName, tagName),
+	)
+	cmd.Stdout = os.Stderr // git push status goes to stderr conventionally
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("git push: %w", err)
 	}
 	return nil
