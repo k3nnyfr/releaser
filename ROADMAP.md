@@ -70,6 +70,7 @@
 - [x] ~~Colored, structured CLI output~~ — ✓ shipped v1.2.0 (`·` / `✓` / `!` symbols, `▸` section headers in verbose, TTY-aware ANSI colors)
 - [x] ~~Name and version header on every run~~ — ✓ shipped v1.2.0
 - [x] ~~Default tag prefix changed to empty~~ — ✓ shipped v1.2.0 (bare `1.2.3` tags by default; opt in to `v` prefix via config)
+- [x] ~~`release.env` dotenv artifact~~ — ✓ shipped v1.3.0 (`NEXT_VERSION=<tag>` written on every release for GitLab CI downstream jobs)
 - [ ] Documentation site
 
 ## Future / backlog

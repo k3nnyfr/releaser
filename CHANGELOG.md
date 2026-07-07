@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.3.0] - 2026-07-07
+
+### Added
+
+- **`release.env` dotenv artifact** — on every real release (not `--dry-run`) a `release.env` file is written to the repository root containing `NEXT_VERSION=<tag>`; the file is never committed, allowing GitLab CI to expose it as a dotenv artifact and pass the version to downstream jobs (deploy, notify, etc.)
+
 ## [1.2.0] - 2026-07-07
 
 ### Added
