@@ -66,7 +66,10 @@
 
 - [x] ~~Integration tests against a real Git repo (with fixture commits and tags)~~ — ✓ shipped v0.4.0 (96% coverage, real in-memory repos)
 - [x] ~~Cross-compilation in CI (linux/amd64, linux/arm64, darwin/amd64)~~ — ✓ shipped v0.4.0 (Gitea release workflow, + darwin/arm64 + windows/amd64)
-- [x] ~~`--verbose` flag~~ — ✓ shipped v1.1.1 (shows config sources, commit analysis, version decision)
+- [x] ~~`--verbose` flag~~ — ✓ shipped v1.2.0 (shows config sources, commit analysis, version decision)
+- [x] ~~Colored, structured CLI output~~ — ✓ shipped v1.2.0 (`·` / `✓` / `!` symbols, `▸` section headers in verbose, TTY-aware ANSI colors)
+- [x] ~~Name and version header on every run~~ — ✓ shipped v1.2.0
+- [x] ~~Default tag prefix changed to empty~~ — ✓ shipped v1.2.0 (bare `1.2.3` tags by default; opt in to `v` prefix via config)
 - [ ] Documentation site
 
 ## Future / backlog

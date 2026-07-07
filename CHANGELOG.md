@@ -3,11 +3,17 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [1.1.1] - 2026-07-07
+## [1.2.0] - 2026-07-07
 
 ### Added
 
-- **`--verbose` flag** — prints configuration table (each key, value, and source: `default` / `config file` / `env: VARNAME` / `flag: --name`), lists every commit since the last tag with its parsed type and version-bump decision, and explains the final version choice; output goes to stderr so it never pollutes scripts that capture stdout
+- **`--verbose` flag** — prints a configuration table (each key, its value, and source: `default` / `config file` / `env: VARNAME` / `flag: --name`), lists every commit since the last tag with its parsed type and bump decision, and shows the final version choice; all output goes to stderr
+- **Colored, structured CLI output** — progress lines use `·` / `✓` / `!` prefix symbols; `--verbose` mode uses `▸` section headers (configuration / branch / commits / version); commit type column colored by kind (cyan=feat, green=fix, red=breaking); config source tags colored; respects `NO_COLOR` and `TERM=dumb`; auto-disabled when stderr is not a TTY
+- **Name and version header** — `releaser  vX.Y.Z` printed to stderr at the start of every invocation
+
+### Changed
+
+- **Default `tag_prefix` is now empty** — tags are bare version numbers (`1.2.3`) by default; add `tag_prefix: "v"` to `.releaser.yml` or pass `--tag-prefix v` to opt in to the `v`-prefixed convention
 
 ## [1.1.0] - 2026-07-07
 
