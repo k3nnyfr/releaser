@@ -387,6 +387,13 @@ func run(o options) error {
 		return nil
 	}
 
+	// --- release.env (GitLab CI dotenv artifact) ---
+	releaseEnvPath := filepath.Join(absRepo, "release.env")
+	if err := os.WriteFile(releaseEnvPath, []byte("NEXT_VERSION="+nextTag+"\n"), 0644); err != nil {
+		return fmt.Errorf("write release.env: %w", err)
+	}
+	logDone("release.env: NEXT_VERSION=%s", nextTag)
+
 	// --- pom.xml + CHANGELOG.md (skipped with --tag-only) ---
 	if !o.tagOnly {
 		var filesToCommit []string

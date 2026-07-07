@@ -658,6 +658,47 @@ func TestRunChangelogFile(t *testing.T) {
 	}
 }
 
+func TestRunReleaseEnv(t *testing.T) {
+	_, dir := setupRepo(t)
+	addFile(t, dir, "x.go", "// fix")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: something", &gogit.CommitOptions{Author: testSig()})
+
+	err := execCmd(t, "--no-push", "--branch", "release/1.2", "--repo", dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "release.env"))
+	if err != nil {
+		t.Fatal("expected release.env to be created")
+	}
+	content := strings.TrimSpace(string(data))
+	if content != "NEXT_VERSION=1.2.0" {
+		t.Errorf("release.env content = %q, want %q", content, "NEXT_VERSION=1.2.0")
+	}
+}
+
+func TestRunReleaseEnvDryRun(t *testing.T) {
+	_, dir := setupRepo(t)
+	addFile(t, dir, "x.go", "// fix")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: something", &gogit.CommitOptions{Author: testSig()})
+
+	err := execCmd(t, "--dry-run", "--branch", "release/1.2", "--repo", dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, "release.env")); err == nil {
+		t.Error("release.env must not be created in --dry-run mode")
+	}
+}
+
 func TestRunVerbose(t *testing.T) {
 	_, dir := setupRepo(t)
 	addFile(t, dir, "x.go", "// feat")
