@@ -161,15 +161,8 @@ type options struct {
 	tagOnly        bool
 }
 
-// vlog prints a verbose line to stderr, prefixed with "[verbose] ", when verbose is true.
-func vlog(verbose bool, format string, args ...any) {
-	if verbose {
-		fmt.Fprintf(os.Stderr, "[verbose] "+format+"\n", args...)
-	}
-}
-
 func printVerboseConfig(cfg config.Config, src config.Sources) {
-	fmt.Fprintln(os.Stderr, "[verbose] configuration:")
+	logSection("configuration")
 	rows := []struct{ key, val string }{
 		{"git.tag_prefix", cfg.Git.TagPrefix},
 		{"git.branch_pattern", cfg.Git.BranchPattern},
@@ -191,7 +184,11 @@ func printVerboseConfig(cfg config.Config, src config.Sources) {
 		if source == "" {
 			source = "default"
 		}
-		fmt.Fprintf(os.Stderr, "  %-25s = %-40s [%s]\n", r.key, r.val, source)
+		val := r.val
+		if val == "" {
+			val = paint(ansiDim, "(empty)")
+		}
+		fmt.Fprintf(os.Stderr, "  %-25s = %-45s %s\n", r.key, val, fmtSource(source))
 	}
 }
 
@@ -215,7 +212,9 @@ func run(o options) error {
 	}
 
 	if o.init {
-		vlog(o.verbose, "creating .releaser.yml in %s", absRepo)
+		if o.verbose {
+			logStep("creating .releaser.yml in %s", absRepo)
+		}
 		return initConfig(absRepo)
 	}
 
@@ -277,7 +276,12 @@ func run(o options) error {
 	}
 	info.TagPrefix = cfg.Git.TagPrefix
 
-	vlog(o.verbose, "branch: %s → major=%d, minor=%d (pinned by branch)", branchName, info.Major, info.Minor)
+	if o.verbose {
+		logSection("branch")
+		fmt.Fprintf(os.Stderr, "  %s → major=%d, minor=%d %s\n",
+			paint(ansiBold, branchName), info.Major, info.Minor,
+			paint(ansiDim, "(pinned by branch)"))
+	}
 
 	// --- Dirty check (before any changes) ---
 	// Skipped in --no-commit mode: the user intentionally has changes in flight.
@@ -297,28 +301,24 @@ func run(o options) error {
 		return fmt.Errorf("find latest tag: %w", err)
 	}
 
-	if o.verbose {
-		if lastTag == "" {
-			vlog(true, "last tag: none — scanning all commits")
-		} else {
-			vlog(true, "last tag: %s → current patch=%d", lastTag, currentPatch)
-		}
-	}
-
 	// --- Commit range ---
 	var messages []string
 	if lastTag == "" {
-		fmt.Fprintln(os.Stderr, "info: no previous tag found — scanning all commits")
 		messages, err = gitutil.AllCommits(repo)
 	} else {
-		fmt.Fprintf(os.Stderr, "info: last tag: %s\n", lastTag)
 		messages, err = gitutil.CommitsSince(repo, lastTag)
 	}
 	if err != nil {
 		return fmt.Errorf("read commits: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "info: %d commit(s) to analyze\n", len(messages))
+	if !o.verbose {
+		if lastTag == "" {
+			logStep("no previous tag — scanning all %d commit(s)", len(messages))
+		} else {
+			logStep("last tag: %s  (%d commit(s) to analyze)", lastTag, len(messages))
+		}
+	}
 
 	// --- Version calculation ---
 	types := make([]commits.Type, len(messages))
@@ -327,28 +327,38 @@ func run(o options) error {
 	}
 
 	if o.verbose {
-		vlog(true, "commits analyzed (%d):", len(messages))
+		logSection(fmt.Sprintf("commits (%d)", len(messages)))
+		if lastTag != "" {
+			fmt.Fprintf(os.Stderr, "  since: %s  (patch=%d)\n", paint(ansiCyan, lastTag), currentPatch)
+		}
 		for i, msg := range messages {
 			first := strings.SplitN(strings.TrimSpace(msg), "\n", 2)[0]
-			t := types[i]
-			var decision string
-			switch t {
-			case commits.TypeBreaking:
-				decision = "breaking → patch bump"
-			case commits.TypeFeat:
-				decision = "feat → patch bump"
-			case commits.TypeFix:
-				decision = "fix → patch bump"
-			default:
-				decision = "ignored"
+			if len(first) > 70 {
+				first = first[:67] + "..."
 			}
-			fmt.Fprintf(os.Stderr, "  %-60s  %s\n", first, decision)
+			t := types[i]
+			typeLabel := fmt.Sprintf("%-9s", t.String())
+			if t == commits.TypeNone {
+				fmt.Fprintf(os.Stderr, "  %s\n", paint(ansiDim, typeLabel+first))
+			} else {
+				var col string
+				switch t {
+				case commits.TypeBreaking:
+					col = ansiRed + ansiBold
+				case commits.TypeFeat:
+					col = ansiCyan
+				default: // fix
+					col = ansiGreen
+				}
+				fmt.Fprintf(os.Stderr, "  %s %s  %s\n",
+					paint(col, typeLabel), first, paint(ansiDim, "→ patch bump"))
+			}
 		}
 	}
 
 	nextVersion, ok := semver.Next(info.Major, info.Minor, currentPatch, types)
 	if !ok {
-		fmt.Fprintln(os.Stderr, "info: no releasable commits found")
+		logWarn("no releasable commits found")
 		return errNothingToRelease
 	}
 
@@ -361,13 +371,17 @@ func run(o options) error {
 				highestType = t
 			}
 		}
-		vlog(true, "version decision: highest type=%s → next=%s (tag: %s)", highestType, nextVersion, nextTag)
+		logSection("version")
+		fmt.Fprintf(os.Stderr, "  highest type: %s  →  next: %s  (tag: %s)\n",
+			paint(ansiCyan, highestType.String()),
+			paint(ansiBold, nextVersion),
+			paint(ansiBold+ansiCyan, nextTag))
 	}
 
 	fmt.Printf("next version: %s (tag: %s)\n", nextVersion, nextTag)
 
 	if o.dryRun {
-		fmt.Fprintln(os.Stderr, "dry-run: no changes made")
+		logStep("dry-run: no changes made")
 		return nil
 	}
 
@@ -387,13 +401,13 @@ func run(o options) error {
 			if err != nil {
 				return fmt.Errorf("read pom version: %w", err)
 			}
-			fmt.Fprintf(os.Stderr, "info: pom.xml: %s → %s\n", currentPomVersion, nextVersion)
 			if err := maven.WriteVersion(pomPath, currentPomVersion, nextVersion); err != nil {
 				return fmt.Errorf("update pom version: %w", err)
 			}
+			logDone("pom.xml: %s → %s", currentPomVersion, nextVersion)
 			filesToCommit = append(filesToCommit, cfg.Maven.PomPath)
 		} else {
-			fmt.Fprintln(os.Stderr, "info: no pom.xml found — skipping version bump")
+			logWarn("no pom.xml — skipping version bump")
 		}
 
 		// CHANGELOG.md
@@ -401,7 +415,7 @@ func run(o options) error {
 		if err := changelog.Update(changelogAbsPath, nextTag, nextVersion, messages); err != nil {
 			return fmt.Errorf("update changelog: %w", err)
 		}
-		fmt.Fprintf(os.Stderr, "info: %s updated\n", o.changelogFile)
+		logDone("%s updated", o.changelogFile)
 		filesToCommit = append(filesToCommit, o.changelogFile)
 
 		if o.noCommit {
@@ -421,14 +435,14 @@ func run(o options) error {
 		if _, err := gitutil.CommitFiles(repo, filesToCommit, commitMsg, authorName, authorEmail); err != nil {
 			return fmt.Errorf("commit: %w", err)
 		}
-		fmt.Fprintf(os.Stderr, "info: committed: %s\n", commitMsg)
+		logDone("committed: %s", commitMsg)
 	}
 
 	// --- Git tag ---
 	if err := gitutil.CreateTag(repo, nextTag); err != nil {
 		return fmt.Errorf("create tag: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, "info: tag created: %s\n", nextTag)
+	logDone("tag: %s", nextTag)
 
 	if o.noPush {
 		fmt.Printf("released %s locally — push manually with: git push && git push --tags\n", nextTag)
@@ -436,11 +450,11 @@ func run(o options) error {
 	}
 
 	// --- Push ---
-	fmt.Fprintln(os.Stderr, "info: pushing commit and tag...")
+	logStep("pushing commit and tag...")
 	if err := gitutil.Push(repo, branchName, nextTag, cfg.GitLab.Token); err != nil {
 		return fmt.Errorf("push: %w", err)
 	}
-	fmt.Fprintln(os.Stderr, "info: pushed")
+	logDone("pushed")
 
 	// --- GitLab release ---
 	if o.noRelease {
@@ -448,7 +462,7 @@ func run(o options) error {
 		return nil
 	}
 	if cfg.GitLab.URL == "" || cfg.GitLab.Project == "" {
-		fmt.Fprintln(os.Stderr, "warning: GitLab URL or project not configured — skipping release creation")
+		logWarn("GitLab URL or project not configured — skipping release creation")
 		fmt.Printf("released %s\n", nextTag)
 		return nil
 	}
@@ -463,7 +477,7 @@ func run(o options) error {
 		return fmt.Errorf("create GitLab release: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "info: GitLab release created: %s\n", nextTag)
+	logDone("GitLab release created: %s", nextTag)
 	fmt.Printf("released %s\n", nextTag)
 	return nil
 }

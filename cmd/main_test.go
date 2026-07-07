@@ -684,15 +684,16 @@ func TestRunVerbose(t *testing.T) {
 	}
 
 	checks := []string{
-		"configuration:",
+		"▸ configuration",
 		"git.tag_prefix",
 		"[default]",
-		"branch: release/1.2",
+		"▸ branch",
+		"release/1.2",
 		"major=1, minor=2",
-		"commits analyzed",
+		"▸ commits",
 		"feat: add new thing",
-		"feat → patch bump",
-		"version decision:",
+		"patch bump",
+		"▸ version",
 	}
 	for _, want := range checks {
 		if !strings.Contains(output, want) {
