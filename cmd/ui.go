@@ -49,6 +49,13 @@ func logWarn(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "  %s %s\n", paint(ansiYellow, "!"), msg)
 }
 
+// logHeader prints the tool name and version banner to stderr.
+func logHeader(ver string) {
+	fmt.Fprintf(os.Stderr, "%s  %s\n",
+		paint(ansiBold, "releaser"),
+		paint(ansiDim, "v"+ver))
+}
+
 // logSection writes a bold section header to stderr (used in verbose mode).
 func logSection(title string) {
 	fmt.Fprintf(os.Stderr, "\n%s\n", paint(ansiBold, "▸ "+title))

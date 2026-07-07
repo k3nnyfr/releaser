@@ -205,6 +205,8 @@ func initConfig(absRepo string) error {
 }
 
 func run(o options) error {
+	logHeader(version)
+
 	// --- Config ---
 	absRepo, err := filepath.Abs(o.repoPath)
 	if err != nil {
