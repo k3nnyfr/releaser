@@ -27,7 +27,7 @@ const defaultConfigTemplate = `# .releaser.yml — configuration for git.k3nny.f
 # CLI flags always take precedence over values set here.
 
 git:
-  # Prefix prepended to every version tag.
+  # Prefix prepended to every version tag (default: no prefix).
   # tag_prefix: "v"
 
   # Regex that identifies release branches. Must contain exactly two capture

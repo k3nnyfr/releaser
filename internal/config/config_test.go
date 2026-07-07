@@ -11,8 +11,8 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Git.TagPrefix != "v" {
-		t.Errorf("TagPrefix = %q, want %q", cfg.Git.TagPrefix, "v")
+	if cfg.Git.TagPrefix != "" {
+		t.Errorf("TagPrefix = %q, want %q", cfg.Git.TagPrefix, "")
 	}
 	if cfg.Maven.PomPath != "pom.xml" {
 		t.Errorf("PomPath = %q, want %q", cfg.Maven.PomPath, "pom.xml")

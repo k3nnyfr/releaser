@@ -228,9 +228,9 @@ func TestRunMissingPom(t *testing.T) {
 
 	// Tag must still have been created.
 	repo2, _ := gogit.PlainOpen(dir)
-	_, err = repo2.Tag("v1.2.0")
+	_, err = repo2.Tag("1.2.0")
 	if err != nil {
-		t.Error("expected tag v1.2.0 to be created")
+		t.Error("expected tag 1.2.0 to be created")
 	}
 }
 
@@ -250,9 +250,9 @@ func TestRunNoPomAtDefaultPath(t *testing.T) {
 	}
 
 	repo2, _ := gogit.PlainOpen(dir)
-	_, err = repo2.Tag("v2.0.0")
+	_, err = repo2.Tag("2.0.0")
 	if err != nil {
-		t.Error("expected tag v2.0.0 to be created")
+		t.Error("expected tag 2.0.0 to be created")
 	}
 }
 
@@ -366,12 +366,12 @@ func TestRunDuplicateTag(t *testing.T) {
 	w.Add("x.go")
 	w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
 
-	// Pre-create a v1.2.0 ref pointing to a garbage hash.
+	// Pre-create a 1.2.0 ref pointing to a garbage hash.
 	// LatestTag skips it (resolveTagToCommit fails for garbage hash),
-	// so run() calculates "v1.2.0" as the first-ever version — then
-	// CreateTag("v1.2.0") fails because the ref already exists.
+	// so run() calculates "1.2.0" as the first-ever version — then
+	// CreateTag("1.2.0") fails because the ref already exists.
 	fakeRef := plumbing.NewHashReference(
-		plumbing.NewTagReferenceName("v1.2.0"),
+		plumbing.NewTagReferenceName("1.2.0"),
 		plumbing.NewHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
 	)
 	if err := repo.Storer.SetReference(fakeRef); err != nil {
@@ -380,7 +380,7 @@ func TestRunDuplicateTag(t *testing.T) {
 
 	err := execCmd(t, "--tag-only", "--no-push", "--branch", "release/1.2", "--repo", dir)
 	if err == nil {
-		t.Fatal("expected error: v1.2.0 ref already exists")
+		t.Fatal("expected error: 1.2.0 ref already exists")
 	}
 }
 
@@ -431,9 +431,9 @@ func TestRunGitLabError(t *testing.T) {
 func TestRunWithPreviousTag(t *testing.T) {
 	repo, dir := setupRepo(t)
 
-	// Tag the initial commit as v1.2.0 (simulates a prior release)
+	// Tag the initial commit as 1.2.0 (simulates a prior release)
 	initialHead, _ := repo.Head()
-	repo.CreateTag("v1.2.0", initialHead.Hash(), nil)
+	repo.CreateTag("1.2.0", initialHead.Hash(), nil)
 
 	// Fix commit after the tag — run() will use CommitsSince, not AllCommits
 	addFile(t, dir, "x.go", "// fix")

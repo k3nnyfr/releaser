@@ -83,7 +83,7 @@ releaser --branch-pattern "^(?:.*/)?(?:release|hotfix)/(\d+)\.(\d+)$"
 
 ```yaml
 git:
-  tag_prefix: "v"                                    # set to "" for tags without prefix
+  tag_prefix: ""                                     # default: no prefix; set to "v" for v-prefixed tags
   branch_pattern: "^(?:.*/)?release/(\\d+)\\.(\\d+)$"  # two capture groups: major, minor
   commit_message: "chore(release): {version} [skip ci]"
   author_name: ""                                    # defaults to git config user.name

@@ -40,7 +40,7 @@ type GitLabConfig struct {
 func defaults() Config {
 	return Config{
 		Git: GitConfig{
-			TagPrefix:     "v",
+			TagPrefix:     "",
 			BranchPattern: branch.DefaultBranchPattern,
 			CommitMessage: "chore(release): {version} [skip ci]",
 		},
