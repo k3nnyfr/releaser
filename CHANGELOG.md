@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.0] - 2026-07-07
+
+### Added
+
+- **CHANGELOG.md auto-update** — every release now writes a new dated section to `CHANGELOG.md` (grouped by Breaking Changes / Added / Fixed), committed alongside `pom.xml` in the release commit; file is created if it does not exist
+- **`--changelog-file` flag** — override the default `CHANGELOG.md` path (e.g. `--changelog-file CHANGES.md`)
+- **`--init` flag** — scaffolds a fully-commented default `.releaser.yml` in the repository root; errors if the file already exists
+- **`CommitFiles`** in `gitutil` — internal helper that stages multiple files before a single commit, used to bundle `pom.xml` + `CHANGELOG.md` in one release commit
+
+### Fixed
+
+- **Push without token** — go-git's HTTPS transport does not use the system credential store; when `GITLAB_TOKEN` is unset the push now delegates to the `git` CLI so credential helpers, SSH agents, and `netrc` all work as expected
+
 ## [0.4.2] - 2026-07-07
 
 ### Fixed

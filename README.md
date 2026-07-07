@@ -1,6 +1,6 @@
 # releaser
 
-![release](https://img.shields.io/badge/release-v0.4.2-blue.svg)
+![release](https://img.shields.io/badge/release-v1.1.0-blue.svg)
 
 A CI-friendly release automation tool for GitFlow workflows using Conventional Commits.
 
@@ -38,22 +38,31 @@ release/1.2 branch
 ## Usage
 
 ```bash
+# Scaffold a default .releaser.yml in the current repository
+releaser --init
+
 # Simulate next version (no side effects)
 releaser --dry-run
 
-# Full release: bump pom.xml, commit, tag, push, GitLab release
+# Full release: update pom.xml + CHANGELOG.md, commit, tag, push, GitLab release
 releaser
 
 # Commit and tag locally — skip push and GitLab release
 releaser --no-push
 
-# Update pom.xml but stop before committing (review first)
+# Push commit and tag but skip creating the GitLab release
+releaser --no-release
+
+# Update files but stop before committing (review first)
 releaser --no-commit
 # … then commit manually and re-run:
 releaser --tag-only
 
 # Explicitly target a branch (useful in detached HEAD CI)
 releaser --branch release/1.2
+
+# Write changelog to a custom file
+releaser --changelog-file CHANGES.md
 
 # Target a specific pom.xml
 releaser --pom path/to/pom.xml

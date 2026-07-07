@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -585,5 +586,73 @@ func TestMainError(t *testing.T) {
 
 	if gotCode != 1 {
 		t.Errorf("expected exit code 1 for general error, got %d", gotCode)
+	}
+}
+
+func TestRunInit(t *testing.T) {
+	dir := t.TempDir()
+	err := execCmd(t, "--init", "--repo", dir)
+	if err != nil {
+		t.Fatalf("--init: unexpected error: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, ".releaser.yml"))
+	if err != nil {
+		t.Fatal("expected .releaser.yml to be created")
+	}
+	if len(data) == 0 {
+		t.Error("expected non-empty .releaser.yml")
+	}
+}
+
+func TestRunInitAlreadyExists(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, ".releaser.yml"), []byte("existing"), 0644)
+	err := execCmd(t, "--init", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected error when .releaser.yml already exists")
+	}
+}
+
+func TestRunChangelogCreated(t *testing.T) {
+	_, dir := setupRepo(t)
+	addFile(t, dir, "x.go", "// feat")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("feat: add shiny feature", &gogit.CommitOptions{Author: testSig()})
+
+	err := execCmd(t, "--no-push", "--branch", "release/1.2", "--repo", dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "CHANGELOG.md"))
+	if err != nil {
+		t.Fatal("expected CHANGELOG.md to be created")
+	}
+	s := string(data)
+	if !strings.Contains(s, "## [1.2.0]") {
+		t.Error("expected version header in CHANGELOG")
+	}
+	if !strings.Contains(s, "add shiny feature") {
+		t.Error("expected feat subject in CHANGELOG")
+	}
+}
+
+func TestRunChangelogFile(t *testing.T) {
+	_, dir := setupRepo(t)
+	addFile(t, dir, "x.go", "// fix")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: something", &gogit.CommitOptions{Author: testSig()})
+
+	err := execCmd(t, "--no-push", "--branch", "release/1.2", "--repo", dir, "--changelog-file", "CHANGES.md")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, "CHANGES.md")); err != nil {
+		t.Error("expected CHANGES.md to be created")
 	}
 }

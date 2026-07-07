@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"git.k3nny.fr/releaser/internal/branch"
+	"git.k3nny.fr/releaser/internal/changelog"
 	"git.k3nny.fr/releaser/internal/commits"
 	"git.k3nny.fr/releaser/internal/config"
 	"git.k3nny.fr/releaser/internal/glclient"
@@ -20,6 +21,45 @@ import (
 	"git.k3nny.fr/releaser/internal/notes"
 	semver "git.k3nny.fr/releaser/internal/version"
 )
+
+const defaultConfigTemplate = `# .releaser.yml — configuration for git.k3nny.fr/releaser
+# All fields are optional. Uncomment and adjust what you need.
+# CLI flags always take precedence over values set here.
+
+git:
+  # Prefix prepended to every version tag.
+  # tag_prefix: "v"
+
+  # Regex that identifies release branches. Must contain exactly two capture
+  # groups: group 1 = major version, group 2 = minor version.
+  # branch_pattern: "^(?:.*/)?release/(\\d+)\\.(\\d+)$"
+
+  # Template for the version-bump commit message.
+  # {version} is replaced with the full tag name (e.g. "v1.2.3").
+  # commit_message: "chore(release): {version} [skip ci]"
+
+  # Override the git commit author. When omitted, releaser reads user.name
+  # and user.email from the repository's git config.
+  # author_name: ""
+  # author_email: ""
+
+maven:
+  # Path to pom.xml, relative to the repository root.
+  # pom_path: "pom.xml"
+
+gitlab:
+  # GitLab instance URL. Falls back to the CI_SERVER_URL environment variable.
+  # url: "https://gitlab.example.com"
+
+  # Personal or CI access token with api scope.
+  # Falls back to the GITLAB_TOKEN environment variable.
+  # Tip: never commit a real token here — use the environment variable instead.
+  # token: ""
+
+  # Numeric project ID or "namespace/project" path.
+  # Falls back to CI_PROJECT_ID, then CI_PROJECT_PATH environment variables.
+  # project: ""
+`
 
 var (
 	version             = "dev" // overridden at build time via -ldflags "-X main.version=..."
@@ -31,6 +71,7 @@ var exitFn = os.Exit
 
 func newRootCmd() *cobra.Command {
 	var (
+		init_          bool
 		dryRun         bool
 		noPush         bool
 		noRelease      bool
@@ -39,6 +80,7 @@ func newRootCmd() *cobra.Command {
 		branchOverride string
 		repoPath       string
 		pomOverride    string
+		changelogFile  string
 		tagPrefixFlag  string
 		tagPrefixSet   bool
 		patternFlag    string
@@ -54,9 +96,11 @@ func newRootCmd() *cobra.Command {
 			tagPrefixSet = cmd.Flags().Changed("tag-prefix")
 			patternSet = cmd.Flags().Changed("branch-pattern")
 			return run(options{
+				init:           init_,
 				repoPath:       repoPath,
 				branchOverride: branchOverride,
 				pomOverride:    pomOverride,
+				changelogFile:  changelogFile,
 				tagPrefixFlag:  tagPrefixFlag,
 				tagPrefixSet:   tagPrefixSet,
 				patternFlag:    patternFlag,
@@ -70,14 +114,16 @@ func newRootCmd() *cobra.Command {
 		},
 	}
 
+	root.Flags().BoolVar(&init_, "init", false, "create a default .releaser.yml in the repository and exit")
 	root.Flags().BoolVar(&dryRun, "dry-run", false, "print next version without making changes")
 	root.Flags().BoolVar(&noPush, "no-push", false, "create commit and tag locally without pushing or creating a GitLab release")
 	root.Flags().BoolVar(&noRelease, "no-release", false, "push commit and tag but skip creating the GitLab release")
-	root.Flags().BoolVar(&noCommit, "no-commit", false, "update pom.xml but do not commit, tag, or push")
-	root.Flags().BoolVar(&tagOnly, "tag-only", false, "tag HEAD without updating pom.xml (assumes version was already committed)")
+	root.Flags().BoolVar(&noCommit, "no-commit", false, "update files but do not commit, tag, or push")
+	root.Flags().BoolVar(&tagOnly, "tag-only", false, "tag HEAD without updating files (assumes version was already committed)")
 	root.Flags().StringVar(&branchOverride, "branch", "", "override branch name detection (required in detached HEAD)")
 	root.Flags().StringVar(&repoPath, "repo", ".", "path to git repository")
 	root.Flags().StringVar(&pomOverride, "pom", "", "override maven.pom_path from config")
+	root.Flags().StringVar(&changelogFile, "changelog-file", "CHANGELOG.md", "path to changelog file relative to repo root")
 	root.Flags().StringVar(&tagPrefixFlag, "tag-prefix", "", "override git.tag_prefix from config")
 	root.Flags().StringVar(&patternFlag, "branch-pattern", "", "override git.branch_pattern from config")
 
@@ -95,9 +141,11 @@ func main() {
 }
 
 type options struct {
+	init           bool
 	repoPath       string
 	branchOverride string
 	pomOverride    string
+	changelogFile  string
 	tagPrefixFlag  string
 	tagPrefixSet   bool
 	patternFlag    string
@@ -109,11 +157,27 @@ type options struct {
 	tagOnly        bool
 }
 
+func initConfig(absRepo string) error {
+	path := filepath.Join(absRepo, ".releaser.yml")
+	if _, err := os.Stat(path); err == nil {
+		return fmt.Errorf(".releaser.yml already exists in %s — delete it first if you want to reset", absRepo)
+	}
+	if err := os.WriteFile(path, []byte(defaultConfigTemplate), 0644); err != nil {
+		return fmt.Errorf("write .releaser.yml: %w", err)
+	}
+	fmt.Printf("created %s\n", path)
+	return nil
+}
+
 func run(o options) error {
 	// --- Config ---
 	absRepo, err := filepath.Abs(o.repoPath)
 	if err != nil {
 		return fmt.Errorf("resolve repo path: %w", err)
+	}
+
+	if o.init {
+		return initConfig(absRepo)
 	}
 
 	cfg, err := config.Load(absRepo)
@@ -207,27 +271,41 @@ func run(o options) error {
 		return nil
 	}
 
-	// --- pom.xml (skipped with --tag-only or when the file does not exist) ---
-	pomPath := filepath.Join(absRepo, cfg.Maven.PomPath)
-	_, statErr := os.Stat(pomPath)
-	hasPom := !errors.Is(statErr, os.ErrNotExist)
-	if statErr != nil && hasPom {
-		return fmt.Errorf("check pom path: %w", statErr)
-	}
+	// --- pom.xml + CHANGELOG.md (skipped with --tag-only) ---
+	if !o.tagOnly {
+		var filesToCommit []string
 
-	if !o.tagOnly && hasPom {
-		currentPomVersion, err := maven.ReadVersion(pomPath)
-		if err != nil {
-			return fmt.Errorf("read pom version: %w", err)
+		// pom.xml
+		pomPath := filepath.Join(absRepo, cfg.Maven.PomPath)
+		_, statErr := os.Stat(pomPath)
+		hasPom := !errors.Is(statErr, os.ErrNotExist)
+		if statErr != nil && hasPom {
+			return fmt.Errorf("check pom path: %w", statErr)
 		}
-		fmt.Fprintf(os.Stderr, "info: pom.xml: %s → %s\n", currentPomVersion, nextVersion)
+		if hasPom {
+			currentPomVersion, err := maven.ReadVersion(pomPath)
+			if err != nil {
+				return fmt.Errorf("read pom version: %w", err)
+			}
+			fmt.Fprintf(os.Stderr, "info: pom.xml: %s → %s\n", currentPomVersion, nextVersion)
+			if err := maven.WriteVersion(pomPath, currentPomVersion, nextVersion); err != nil {
+				return fmt.Errorf("update pom version: %w", err)
+			}
+			filesToCommit = append(filesToCommit, cfg.Maven.PomPath)
+		} else {
+			fmt.Fprintln(os.Stderr, "info: no pom.xml found — skipping version bump")
+		}
 
-		if err := maven.WriteVersion(pomPath, currentPomVersion, nextVersion); err != nil {
-			return fmt.Errorf("update pom version: %w", err)
+		// CHANGELOG.md
+		changelogAbsPath := filepath.Join(absRepo, o.changelogFile)
+		if err := changelog.Update(changelogAbsPath, nextTag, nextVersion, messages); err != nil {
+			return fmt.Errorf("update changelog: %w", err)
 		}
+		fmt.Fprintf(os.Stderr, "info: %s updated\n", o.changelogFile)
+		filesToCommit = append(filesToCommit, o.changelogFile)
 
 		if o.noCommit {
-			fmt.Printf("pom.xml updated to %s — commit manually then re-run with --tag-only\n", nextVersion)
+			fmt.Printf("files updated to %s — commit manually then re-run with --tag-only\n", nextVersion)
 			return nil
 		}
 
@@ -239,14 +317,11 @@ func run(o options) error {
 		if cfg.Git.AuthorEmail != "" {
 			authorEmail = cfg.Git.AuthorEmail
 		}
-
 		commitMsg := strings.ReplaceAll(cfg.Git.CommitMessage, "{version}", nextTag)
-		if _, err := gitutil.CommitFile(repo, cfg.Maven.PomPath, commitMsg, authorName, authorEmail); err != nil {
-			return fmt.Errorf("commit pom.xml: %w", err)
+		if _, err := gitutil.CommitFiles(repo, filesToCommit, commitMsg, authorName, authorEmail); err != nil {
+			return fmt.Errorf("commit: %w", err)
 		}
 		fmt.Fprintf(os.Stderr, "info: committed: %s\n", commitMsg)
-	} else if !o.tagOnly && !hasPom {
-		fmt.Fprintln(os.Stderr, "info: no pom.xml found — skipping version bump commit")
 	}
 
 	// --- Git tag ---

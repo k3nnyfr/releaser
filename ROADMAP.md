@@ -55,10 +55,12 @@
 - [x] Gitea release workflow (5-platform cross-compilation, release asset upload)
 - [x] 96% test coverage with real in-memory git repos and fuzz tests for all parsers
 
-## v0.5 — Changelog
+## v0.5 — Changelog ✅
 
-- [ ] `CHANGELOG.md` generation / append (grouped by commit type)
-- [ ] `--changelog-file` flag
+- [x] `CHANGELOG.md` generation / append (grouped by commit type: Breaking Changes / Added / Fixed)
+- [x] `--changelog-file` flag to use a custom filename
+- [x] `--init` flag to scaffold a default `.releaser.yml`
+- [x] Push falls back to system `git` CLI when no token is set (uses credential helpers, SSH, netrc)
 
 ## v1.0 — Production ready
 

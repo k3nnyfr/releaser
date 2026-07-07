@@ -196,15 +196,17 @@ func AuthorFromConfig(repo *gogit.Repository) (name, email string) {
 	return
 }
 
-// CommitFile stages filePath (relative to worktree root) and creates a commit.
-func CommitFile(repo *gogit.Repository, filePath, message, authorName, authorEmail string) (plumbing.Hash, error) {
+// CommitFiles stages all filePaths (relative to worktree root) and creates a commit.
+func CommitFiles(repo *gogit.Repository, filePaths []string, message, authorName, authorEmail string) (plumbing.Hash, error) {
 	w, err := repo.Worktree()
 	if err != nil {
 		return plumbing.ZeroHash, err
 	}
 
-	if _, err := w.Add(filePath); err != nil {
-		return plumbing.ZeroHash, fmt.Errorf("git add %s: %w", filePath, err)
+	for _, p := range filePaths {
+		if _, err := w.Add(p); err != nil {
+			return plumbing.ZeroHash, fmt.Errorf("git add %s: %w", p, err)
+		}
 	}
 
 	hash, err := w.Commit(message, &gogit.CommitOptions{
@@ -218,6 +220,11 @@ func CommitFile(repo *gogit.Repository, filePath, message, authorName, authorEma
 		return plumbing.ZeroHash, fmt.Errorf("git commit: %w", err)
 	}
 	return hash, nil
+}
+
+// CommitFile stages a single file and creates a commit.
+func CommitFile(repo *gogit.Repository, filePath, message, authorName, authorEmail string) (plumbing.Hash, error) {
+	return CommitFiles(repo, []string{filePath}, message, authorName, authorEmail)
 }
 
 // CreateTag creates a lightweight tag on HEAD.
