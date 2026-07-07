@@ -66,6 +66,7 @@
 
 - [x] ~~Integration tests against a real Git repo (with fixture commits and tags)~~ — ✓ shipped v0.4.0 (96% coverage, real in-memory repos)
 - [x] ~~Cross-compilation in CI (linux/amd64, linux/arm64, darwin/amd64)~~ — ✓ shipped v0.4.0 (Gitea release workflow, + darwin/arm64 + windows/amd64)
+- [x] ~~`--verbose` flag~~ — ✓ shipped v1.1.1 (shows config sources, commit analysis, version decision)
 - [ ] Documentation site
 
 ## Future / backlog

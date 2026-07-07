@@ -1,6 +1,6 @@
 # releaser
 
-![release](https://img.shields.io/badge/release-v1.1.0-blue.svg)
+![release](https://img.shields.io/badge/release-v1.1.1-blue.svg)
 
 A CI-friendly release automation tool for GitFlow workflows using Conventional Commits.
 
@@ -63,6 +63,9 @@ releaser --branch release/1.2
 
 # Write changelog to a custom file
 releaser --changelog-file CHANGES.md
+
+# Show configuration sources, commit list, and version decision
+releaser --verbose --dry-run
 
 # Target a specific pom.xml
 releaser --pom path/to/pom.xml

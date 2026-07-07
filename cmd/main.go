@@ -72,6 +72,7 @@ var exitFn = os.Exit
 func newRootCmd() *cobra.Command {
 	var (
 		init_          bool
+		verbose        bool
 		dryRun         bool
 		noPush         bool
 		noRelease      bool
@@ -97,6 +98,7 @@ func newRootCmd() *cobra.Command {
 			patternSet = cmd.Flags().Changed("branch-pattern")
 			return run(options{
 				init:           init_,
+				verbose:        verbose,
 				repoPath:       repoPath,
 				branchOverride: branchOverride,
 				pomOverride:    pomOverride,
@@ -115,6 +117,7 @@ func newRootCmd() *cobra.Command {
 	}
 
 	root.Flags().BoolVar(&init_, "init", false, "create a default .releaser.yml in the repository and exit")
+	root.Flags().BoolVar(&verbose, "verbose", false, "print configuration sources, commit list, and version decision")
 	root.Flags().BoolVar(&dryRun, "dry-run", false, "print next version without making changes")
 	root.Flags().BoolVar(&noPush, "no-push", false, "create commit and tag locally without pushing or creating a GitLab release")
 	root.Flags().BoolVar(&noRelease, "no-release", false, "push commit and tag but skip creating the GitLab release")
@@ -142,6 +145,7 @@ func main() {
 
 type options struct {
 	init           bool
+	verbose        bool
 	repoPath       string
 	branchOverride string
 	pomOverride    string
@@ -155,6 +159,40 @@ type options struct {
 	noRelease      bool
 	noCommit       bool
 	tagOnly        bool
+}
+
+// vlog prints a verbose line to stderr, prefixed with "[verbose] ", when verbose is true.
+func vlog(verbose bool, format string, args ...any) {
+	if verbose {
+		fmt.Fprintf(os.Stderr, "[verbose] "+format+"\n", args...)
+	}
+}
+
+func printVerboseConfig(cfg config.Config, src config.Sources) {
+	fmt.Fprintln(os.Stderr, "[verbose] configuration:")
+	rows := []struct{ key, val string }{
+		{"git.tag_prefix", cfg.Git.TagPrefix},
+		{"git.branch_pattern", cfg.Git.BranchPattern},
+		{"git.commit_message", cfg.Git.CommitMessage},
+		{"git.author_name", cfg.Git.AuthorName},
+		{"git.author_email", cfg.Git.AuthorEmail},
+		{"maven.pom_path", cfg.Maven.PomPath},
+		{"gitlab.url", cfg.GitLab.URL},
+		{"gitlab.token", func() string {
+			if cfg.GitLab.Token != "" {
+				return "(set)"
+			}
+			return "(not set)"
+		}()},
+		{"gitlab.project", cfg.GitLab.Project},
+	}
+	for _, r := range rows {
+		source := src[r.key]
+		if source == "" {
+			source = "default"
+		}
+		fmt.Fprintf(os.Stderr, "  %-25s = %-40s [%s]\n", r.key, r.val, source)
+	}
 }
 
 func initConfig(absRepo string) error {
@@ -177,24 +215,46 @@ func run(o options) error {
 	}
 
 	if o.init {
+		vlog(o.verbose, "creating .releaser.yml in %s", absRepo)
 		return initConfig(absRepo)
 	}
 
-	cfg, err := config.Load(absRepo)
+	var (
+		cfg config.Config
+		src config.Sources
+	)
+	if o.verbose {
+		cfg, src, err = config.LoadWithSources(absRepo)
+	} else {
+		cfg, err = config.Load(absRepo)
+	}
 	if err != nil {
 		return err
 	}
-	cfg.ApplyEnv()
+	cfg.ApplyEnvWithSources(src)
 
 	// CLI flags take precedence over config file and env vars
 	if o.tagPrefixSet {
 		cfg.Git.TagPrefix = o.tagPrefixFlag
+		if src != nil {
+			src["git.tag_prefix"] = "flag: --tag-prefix"
+		}
 	}
 	if o.pomOverride != "" {
 		cfg.Maven.PomPath = o.pomOverride
+		if src != nil {
+			src["maven.pom_path"] = "flag: --pom"
+		}
 	}
 	if o.patternSet {
 		cfg.Git.BranchPattern = o.patternFlag
+		if src != nil {
+			src["git.branch_pattern"] = "flag: --branch-pattern"
+		}
+	}
+
+	if o.verbose {
+		printVerboseConfig(cfg, src)
 	}
 
 	// --- Git ---
@@ -217,6 +277,8 @@ func run(o options) error {
 	}
 	info.TagPrefix = cfg.Git.TagPrefix
 
+	vlog(o.verbose, "branch: %s → major=%d, minor=%d (pinned by branch)", branchName, info.Major, info.Minor)
+
 	// --- Dirty check (before any changes) ---
 	// Skipped in --no-commit mode: the user intentionally has changes in flight.
 	if !o.dryRun && !o.noCommit {
@@ -233,6 +295,14 @@ func run(o options) error {
 	lastTag, currentPatch, err := gitutil.LatestTag(repo, info)
 	if err != nil {
 		return fmt.Errorf("find latest tag: %w", err)
+	}
+
+	if o.verbose {
+		if lastTag == "" {
+			vlog(true, "last tag: none — scanning all commits")
+		} else {
+			vlog(true, "last tag: %s → current patch=%d", lastTag, currentPatch)
+		}
 	}
 
 	// --- Commit range ---
@@ -256,6 +326,26 @@ func run(o options) error {
 		types[i] = commits.Parse(msg)
 	}
 
+	if o.verbose {
+		vlog(true, "commits analyzed (%d):", len(messages))
+		for i, msg := range messages {
+			first := strings.SplitN(strings.TrimSpace(msg), "\n", 2)[0]
+			t := types[i]
+			var decision string
+			switch t {
+			case commits.TypeBreaking:
+				decision = "breaking → patch bump"
+			case commits.TypeFeat:
+				decision = "feat → patch bump"
+			case commits.TypeFix:
+				decision = "fix → patch bump"
+			default:
+				decision = "ignored"
+			}
+			fmt.Fprintf(os.Stderr, "  %-60s  %s\n", first, decision)
+		}
+	}
+
 	nextVersion, ok := semver.Next(info.Major, info.Minor, currentPatch, types)
 	if !ok {
 		fmt.Fprintln(os.Stderr, "info: no releasable commits found")
@@ -263,6 +353,16 @@ func run(o options) error {
 	}
 
 	nextTag := info.TagName(nextVersion)
+
+	if o.verbose {
+		highestType := commits.TypeNone
+		for _, t := range types {
+			if t > highestType {
+				highestType = t
+			}
+		}
+		vlog(true, "version decision: highest type=%s → next=%s (tag: %s)", highestType, nextVersion, nextTag)
+	}
 
 	fmt.Printf("next version: %s (tag: %s)\n", nextVersion, nextTag)
 

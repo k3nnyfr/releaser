@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.1] - 2026-07-07
+
+### Added
+
+- **`--verbose` flag** — prints configuration table (each key, value, and source: `default` / `config file` / `env: VARNAME` / `flag: --name`), lists every commit since the last tag with its parsed type and version-bump decision, and explains the final version choice; output goes to stderr so it never pollutes scripts that capture stdout
+
 ## [1.1.0] - 2026-07-07
 
 ### Added

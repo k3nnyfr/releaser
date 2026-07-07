@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -654,5 +655,48 @@ func TestRunChangelogFile(t *testing.T) {
 
 	if _, err := os.Stat(filepath.Join(dir, "CHANGES.md")); err != nil {
 		t.Error("expected CHANGES.md to be created")
+	}
+}
+
+func TestRunVerbose(t *testing.T) {
+	_, dir := setupRepo(t)
+	addFile(t, dir, "x.go", "// feat")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("feat: add new thing", &gogit.CommitOptions{Author: testSig()})
+
+	// Capture stderr output by redirecting it temporarily.
+	old := os.Stderr
+	r, wPipe, _ := os.Pipe()
+	os.Stderr = wPipe
+
+	err := execCmd(t, "--dry-run", "--verbose", "--branch", "release/1.2", "--repo", dir)
+
+	wPipe.Close()
+	os.Stderr = old
+
+	rawBytes, _ := io.ReadAll(r)
+	output := string(rawBytes)
+
+	if err != nil {
+		t.Fatalf("--verbose: unexpected error: %v", err)
+	}
+
+	checks := []string{
+		"configuration:",
+		"git.tag_prefix",
+		"[default]",
+		"branch: release/1.2",
+		"major=1, minor=2",
+		"commits analyzed",
+		"feat: add new thing",
+		"feat → patch bump",
+		"version decision:",
+	}
+	for _, want := range checks {
+		if !strings.Contains(output, want) {
+			t.Errorf("--verbose output missing %q\nfull output:\n%s", want, output)
+		}
 	}
 }
