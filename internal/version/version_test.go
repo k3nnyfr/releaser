@@ -61,7 +61,7 @@ func TestNext(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.desc, func(t *testing.T) {
-			got, ok := Next(c.major, c.minor, c.currentPatch, c.types)
+			got, ok := Next(c.major, c.minor, c.currentPatch, c.types, nil)
 			if ok != c.wantOk {
 				t.Errorf("ok=%v, want %v", ok, c.wantOk)
 			}

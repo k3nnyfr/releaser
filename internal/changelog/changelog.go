@@ -4,19 +4,17 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 	"time"
 
 	"git.k3nny.fr/releaser/internal/commits"
 )
 
-var headerSubjectRe = regexp.MustCompile(`(?i)^\w+(?:\([^)]*\))?!?\s*:\s*(.+)`)
-
 // Update inserts a new release section into the CHANGELOG file at path.
 // If the file does not exist it is created with a standard header.
 // Only commits with a releasable type (fix, feat, breaking) produce bullets;
 // if none are found the file is left untouched.
+// If a section for version already exists the file is left untouched (idempotent).
 func Update(path, tag, version string, messages []string) error {
 	section := buildSection(version, messages)
 	if section == "" {
@@ -29,6 +27,10 @@ func Update(path, tag, version string, messages []string) error {
 		existing = string(data)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("read %s: %w", path, err)
+	}
+
+	if strings.Contains(existing, "## ["+version+"]") {
+		return nil
 	}
 
 	var out string
@@ -48,26 +50,7 @@ func Update(path, tag, version string, messages []string) error {
 }
 
 func buildSection(version string, messages []string) string {
-	var breaking, feats, fixes []string
-
-	for _, msg := range messages {
-		t := commits.Parse(msg)
-		if t == commits.TypeNone {
-			continue
-		}
-		first := strings.SplitN(strings.TrimSpace(msg), "\n", 2)[0]
-		subject := extractSubject(first)
-
-		switch t {
-		case commits.TypeBreaking:
-			breaking = append(breaking, subject)
-		case commits.TypeFeat:
-			feats = append(feats, subject)
-		case commits.TypeFix:
-			fixes = append(fixes, subject)
-		}
-	}
-
+	breaking, feats, fixes := commits.Group(messages)
 	if len(breaking)+len(feats)+len(fixes) == 0 {
 		return ""
 	}
@@ -90,12 +73,4 @@ func writeSection(sb *strings.Builder, title string, items []string) {
 	for _, item := range items {
 		fmt.Fprintf(sb, "- %s\n", item)
 	}
-}
-
-func extractSubject(header string) string {
-	m := headerSubjectRe.FindStringSubmatch(header)
-	if m != nil {
-		return strings.TrimSpace(m[1])
-	}
-	return strings.TrimSpace(header)
 }

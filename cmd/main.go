@@ -15,8 +15,9 @@ import (
 	"git.k3nny.fr/releaser/internal/changelog"
 	"git.k3nny.fr/releaser/internal/commits"
 	"git.k3nny.fr/releaser/internal/config"
-	"git.k3nny.fr/releaser/internal/glclient"
+	"git.k3nny.fr/releaser/internal/ghclient"
 	"git.k3nny.fr/releaser/internal/gitutil"
+	"git.k3nny.fr/releaser/internal/glclient"
 	"git.k3nny.fr/releaser/internal/maven"
 	"git.k3nny.fr/releaser/internal/notes"
 	semver "git.k3nny.fr/releaser/internal/version"
@@ -43,6 +44,12 @@ git:
   # author_name: ""
   # author_email: ""
 
+  # Limit which commit types trigger a release (default: fix, feat, breaking).
+  # releasable_types:
+  #   - fix
+  #   - feat
+  #   - breaking
+
 maven:
   # Path to pom.xml, relative to the repository root.
   # pom_path: "pom.xml"
@@ -59,6 +66,14 @@ gitlab:
   # Numeric project ID or "namespace/project" path.
   # Falls back to CI_PROJECT_ID, then CI_PROJECT_PATH environment variables.
   # project: ""
+
+github:
+  # GitHub personal access token with repo scope.
+  # Falls back to the GITHUB_TOKEN environment variable.
+  # token: ""
+
+  # Repository in "owner/repo" format.
+  # repo: ""
 `
 
 var (
@@ -69,23 +84,45 @@ var (
 // exitFn is a variable so tests can intercept os.Exit calls.
 var exitFn = os.Exit
 
+// releasePublisher is implemented by both glclient and ghclient.
+type releasePublisher interface {
+	CreateRelease(ctx context.Context, tagName, body string) error
+}
+
+// buildPublisher selects and returns the active release publisher based on config.
+// GitHub takes precedence over GitLab when both are configured.
+// Returns (nil, nil) when no provider is configured — caller should skip release creation.
+func buildPublisher(cfg config.Config) (releasePublisher, error) {
+	if cfg.GitHub.Token != "" && cfg.GitHub.Repo != "" {
+		return ghclient.New(cfg.GitHub.Token, cfg.GitHub.Repo), nil
+	}
+	if cfg.GitLab.URL != "" && cfg.GitLab.Project != "" {
+		if cfg.GitLab.Token == "" {
+			return nil, fmt.Errorf("GITLAB_TOKEN not set — required for release creation")
+		}
+		return glclient.New(cfg.GitLab.URL, cfg.GitLab.Token, cfg.GitLab.Project), nil
+	}
+	return nil, nil
+}
+
 func newRootCmd() *cobra.Command {
 	var (
-		init_          bool
-		verbose        bool
-		dryRun         bool
-		noPush         bool
-		noRelease      bool
-		noCommit       bool
-		tagOnly        bool
-		branchOverride string
-		repoPath       string
-		pomOverride    string
-		changelogFile  string
-		tagPrefixFlag  string
-		tagPrefixSet   bool
-		patternFlag    string
-		patternSet     bool
+		init_           bool
+		verbose         bool
+		dryRun          bool
+		noPush          bool
+		noRelease       bool
+		noCommit        bool
+		tagOnly         bool
+		branchOverride  string
+		repoPath        string
+		pomOverride     string
+		changelogFile   string
+		tagPrefixFlag   string
+		tagPrefixSet    bool
+		patternFlag     string
+		patternSet      bool
+		releaseEnvFile  string
 	)
 
 	root := &cobra.Command{
@@ -112,6 +149,7 @@ func newRootCmd() *cobra.Command {
 				noRelease:      noRelease,
 				noCommit:       noCommit,
 				tagOnly:        tagOnly,
+				releaseEnvFile: releaseEnvFile,
 			})
 		},
 	}
@@ -119,8 +157,8 @@ func newRootCmd() *cobra.Command {
 	root.Flags().BoolVar(&init_, "init", false, "create a default .releaser.yml in the repository and exit")
 	root.Flags().BoolVar(&verbose, "verbose", false, "print configuration sources, commit list, and version decision")
 	root.Flags().BoolVar(&dryRun, "dry-run", false, "print next version without making changes")
-	root.Flags().BoolVar(&noPush, "no-push", false, "create commit and tag locally without pushing or creating a GitLab release")
-	root.Flags().BoolVar(&noRelease, "no-release", false, "push commit and tag but skip creating the GitLab release")
+	root.Flags().BoolVar(&noPush, "no-push", false, "create commit and tag locally without pushing or creating a release")
+	root.Flags().BoolVar(&noRelease, "no-release", false, "push commit and tag but skip creating the release")
 	root.Flags().BoolVar(&noCommit, "no-commit", false, "update files but do not commit, tag, or push")
 	root.Flags().BoolVar(&tagOnly, "tag-only", false, "tag HEAD without updating files (assumes version was already committed)")
 	root.Flags().StringVar(&branchOverride, "branch", "", "override branch name detection (required in detached HEAD)")
@@ -129,6 +167,7 @@ func newRootCmd() *cobra.Command {
 	root.Flags().StringVar(&changelogFile, "changelog-file", "CHANGELOG.md", "path to changelog file relative to repo root")
 	root.Flags().StringVar(&tagPrefixFlag, "tag-prefix", "", "override git.tag_prefix from config")
 	root.Flags().StringVar(&patternFlag, "branch-pattern", "", "override git.branch_pattern from config")
+	root.Flags().StringVar(&releaseEnvFile, "release-env-file", "release.env", "write NEXT_VERSION dotenv to this path (relative to repo root; empty to disable)")
 
 	return root
 }
@@ -159,6 +198,7 @@ type options struct {
 	noRelease      bool
 	noCommit       bool
 	tagOnly        bool
+	releaseEnvFile string
 }
 
 func printVerboseConfig(cfg config.Config, src config.Sources) {
@@ -169,6 +209,12 @@ func printVerboseConfig(cfg config.Config, src config.Sources) {
 		{"git.commit_message", cfg.Git.CommitMessage},
 		{"git.author_name", cfg.Git.AuthorName},
 		{"git.author_email", cfg.Git.AuthorEmail},
+		{"git.releasable_types", func() string {
+			if len(cfg.Git.ReleasableTypes) == 0 {
+				return "(all)"
+			}
+			return strings.Join(cfg.Git.ReleasableTypes, ", ")
+		}()},
 		{"maven.pom_path", cfg.Maven.PomPath},
 		{"gitlab.url", cfg.GitLab.URL},
 		{"gitlab.token", func() string {
@@ -178,6 +224,13 @@ func printVerboseConfig(cfg config.Config, src config.Sources) {
 			return "(not set)"
 		}()},
 		{"gitlab.project", cfg.GitLab.Project},
+		{"github.token", func() string {
+			if cfg.GitHub.Token != "" {
+				return "(set)"
+			}
+			return "(not set)"
+		}()},
+		{"github.repo", cfg.GitHub.Repo},
 	}
 	for _, r := range rows {
 		source := src[r.key]
@@ -220,15 +273,7 @@ func run(o options) error {
 		return initConfig(absRepo)
 	}
 
-	var (
-		cfg config.Config
-		src config.Sources
-	)
-	if o.verbose {
-		cfg, src, err = config.LoadWithSources(absRepo)
-	} else {
-		cfg, err = config.Load(absRepo)
-	}
+	cfg, src, err := config.LoadWithSources(absRepo)
 	if err != nil {
 		return err
 	}
@@ -237,21 +282,15 @@ func run(o options) error {
 	// CLI flags take precedence over config file and env vars
 	if o.tagPrefixSet {
 		cfg.Git.TagPrefix = o.tagPrefixFlag
-		if src != nil {
-			src["git.tag_prefix"] = "flag: --tag-prefix"
-		}
+		src["git.tag_prefix"] = "flag: --tag-prefix"
 	}
 	if o.pomOverride != "" {
 		cfg.Maven.PomPath = o.pomOverride
-		if src != nil {
-			src["maven.pom_path"] = "flag: --pom"
-		}
+		src["maven.pom_path"] = "flag: --pom"
 	}
 	if o.patternSet {
 		cfg.Git.BranchPattern = o.patternFlag
-		if src != nil {
-			src["git.branch_pattern"] = "flag: --branch-pattern"
-		}
+		src["git.branch_pattern"] = "flag: --branch-pattern"
 	}
 
 	if o.verbose {
@@ -358,7 +397,8 @@ func run(o options) error {
 		}
 	}
 
-	nextVersion, ok := semver.Next(info.Major, info.Minor, currentPatch, types)
+	releasable := commits.ReleasableSet(cfg.Git.ReleasableTypes)
+	nextVersion, ok := semver.Next(info.Major, info.Minor, currentPatch, types, releasable)
 	if !ok {
 		logWarn("no releasable commits found")
 		return errNothingToRelease
@@ -388,11 +428,13 @@ func run(o options) error {
 	}
 
 	// --- release.env (GitLab CI dotenv artifact) ---
-	releaseEnvPath := filepath.Join(absRepo, "release.env")
-	if err := os.WriteFile(releaseEnvPath, []byte("NEXT_VERSION="+nextTag+"\n"), 0644); err != nil {
-		return fmt.Errorf("write release.env: %w", err)
+	if o.releaseEnvFile != "" {
+		releaseEnvPath := filepath.Join(absRepo, o.releaseEnvFile)
+		if err := os.WriteFile(releaseEnvPath, []byte("NEXT_VERSION="+nextTag+"\n"), 0644); err != nil {
+			return fmt.Errorf("write %s: %w", o.releaseEnvFile, err)
+		}
+		logDone("%s: NEXT_VERSION=%s", o.releaseEnvFile, nextTag)
 	}
-	logDone("release.env: NEXT_VERSION=%s", nextTag)
 
 	// --- pom.xml + CHANGELOG.md (skipped with --tag-only) ---
 	if !o.tagOnly {
@@ -465,28 +507,27 @@ func run(o options) error {
 	}
 	logDone("pushed")
 
-	// --- GitLab release ---
 	if o.noRelease {
 		fmt.Printf("released %s\n", nextTag)
 		return nil
 	}
-	if cfg.GitLab.URL == "" || cfg.GitLab.Project == "" {
-		logWarn("GitLab URL or project not configured — skipping release creation")
+
+	// --- Release creation ---
+	publisher, err := buildPublisher(cfg)
+	if err != nil {
+		return err
+	}
+	if publisher == nil {
+		logWarn("no release provider configured — skipping release creation")
 		fmt.Printf("released %s\n", nextTag)
 		return nil
 	}
-	if cfg.GitLab.Token == "" {
-		return fmt.Errorf("GITLAB_TOKEN not set — required for release creation")
-	}
 
 	releaseNotes := notes.Generate(nextTag, messages)
-	gl := glclient.New(cfg.GitLab.URL, cfg.GitLab.Token, cfg.GitLab.Project)
-
-	if err := gl.CreateRelease(context.Background(), nextTag, releaseNotes); err != nil {
-		return fmt.Errorf("create GitLab release: %w", err)
+	if err := publisher.CreateRelease(context.Background(), nextTag, releaseNotes); err != nil {
+		return fmt.Errorf("create release: %w", err)
 	}
-
-	logDone("GitLab release created: %s", nextTag)
+	logDone("release created: %s", nextTag)
 	fmt.Printf("released %s\n", nextTag)
 	return nil
 }

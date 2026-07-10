@@ -71,11 +71,13 @@
 - [x] ~~Name and version header on every run~~ — ✓ shipped v1.2.0
 - [x] ~~Default tag prefix changed to empty~~ — ✓ shipped v1.2.0 (bare `1.2.3` tags by default; opt in to `v` prefix via config)
 - [x] ~~`release.env` dotenv artifact~~ — ✓ shipped v1.3.0 (`NEXT_VERSION=<tag>` written on every release for GitLab CI downstream jobs)
+- [x] ~~GitHub release support~~ — ✓ shipped v1.4.0 (`internal/ghclient`, `GITHUB_TOKEN` env, `github.token`/`github.repo` config; GitHub takes precedence over GitLab)
+- [x] ~~SSH agent push~~ — ✓ shipped v1.4.0 (go-git `gitssh.NewSSHAgentAuth` for `git@`/`ssh://` remotes)
+- [x] ~~Configurable bump rules~~ — ✓ shipped v1.4.0 (`git.releasable_types` config; filter which commit types trigger a release)
 - [ ] Documentation site
 
 ## Future / backlog
 
-- GitHub release support (parity with GitLab)
 - Multi-module Maven support (multiple `pom.xml` paths)
 - Gradle support (`build.gradle` / `build.gradle.kts`)
 - `package.json` version bump support (Node.js projects)

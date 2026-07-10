@@ -17,14 +17,16 @@ type Config struct {
 	Git    GitConfig    `yaml:"git"`
 	Maven  MavenConfig  `yaml:"maven"`
 	GitLab GitLabConfig `yaml:"gitlab"`
+	GitHub GitHubConfig `yaml:"github"`
 }
 
 type GitConfig struct {
-	TagPrefix     string `yaml:"tag_prefix"`
-	BranchPattern string `yaml:"branch_pattern"`
-	CommitMessage string `yaml:"commit_message"`
-	AuthorName    string `yaml:"author_name"`
-	AuthorEmail   string `yaml:"author_email"`
+	TagPrefix       string   `yaml:"tag_prefix"`
+	BranchPattern   string   `yaml:"branch_pattern"`
+	CommitMessage   string   `yaml:"commit_message"`
+	AuthorName      string   `yaml:"author_name"`
+	AuthorEmail     string   `yaml:"author_email"`
+	ReleasableTypes []string `yaml:"releasable_types"`
 }
 
 type MavenConfig struct {
@@ -35,6 +37,11 @@ type GitLabConfig struct {
 	URL     string `yaml:"url"`
 	Token   string `yaml:"token"`
 	Project string `yaml:"project"`
+}
+
+type GitHubConfig struct {
+	Token string `yaml:"token"`
+	Repo  string `yaml:"repo"` // "owner/repo"
 }
 
 func defaults() Config {
@@ -57,15 +64,18 @@ type Sources map[string]string
 
 func defaultSources() Sources {
 	return Sources{
-		"git.tag_prefix":      "default",
-		"git.branch_pattern":  "default",
-		"git.commit_message":  "default",
-		"git.author_name":     "default",
-		"git.author_email":    "default",
-		"maven.pom_path":      "default",
-		"gitlab.url":          "default",
-		"gitlab.token":        "default",
-		"gitlab.project":      "default",
+		"git.tag_prefix":       "default",
+		"git.branch_pattern":   "default",
+		"git.commit_message":   "default",
+		"git.author_name":      "default",
+		"git.author_email":     "default",
+		"git.releasable_types": "default",
+		"maven.pom_path":       "default",
+		"gitlab.url":           "default",
+		"gitlab.token":         "default",
+		"gitlab.project":       "default",
+		"github.token":         "default",
+		"github.repo":          "default",
 	}
 }
 
@@ -113,6 +123,9 @@ func LoadWithSources(dir string) (Config, Sources, error) {
 	if overlay.Git.AuthorEmail != "" {
 		src["git.author_email"] = "config file"
 	}
+	if len(overlay.Git.ReleasableTypes) > 0 {
+		src["git.releasable_types"] = "config file"
+	}
 	if overlay.Maven.PomPath != "" {
 		src["maven.pom_path"] = "config file"
 	}
@@ -125,11 +138,17 @@ func LoadWithSources(dir string) (Config, Sources, error) {
 	if overlay.GitLab.Project != "" {
 		src["gitlab.project"] = "config file"
 	}
+	if overlay.GitHub.Token != "" {
+		src["github.token"] = "config file"
+	}
+	if overlay.GitHub.Repo != "" {
+		src["github.repo"] = "config file"
+	}
 
 	return cfg, src, nil
 }
 
-// ApplyEnv fills empty GitLab fields from the standard GitLab CI environment variables.
+// ApplyEnv fills empty GitLab and GitHub fields from environment variables.
 // Values already set in the config file are never overwritten.
 func (c *Config) ApplyEnv() {
 	c.ApplyEnvWithSources(nil)
@@ -147,7 +166,6 @@ func (c *Config) ApplyEnvWithSources(src Sources) {
 		}
 	}
 	if c.GitLab.URL == "" {
-		// CI_SERVER_URL is the cleanest source ("https://gitlab.example.com")
 		if v := os.Getenv("CI_SERVER_URL"); v != "" {
 			c.GitLab.URL = v
 			if src != nil {
@@ -156,7 +174,6 @@ func (c *Config) ApplyEnvWithSources(src Sources) {
 		}
 	}
 	if c.GitLab.Project == "" {
-		// Prefer numeric ID; fall back to namespace/project path
 		if id := os.Getenv("CI_PROJECT_ID"); id != "" {
 			c.GitLab.Project = id
 			if src != nil {
@@ -166,6 +183,14 @@ func (c *Config) ApplyEnvWithSources(src Sources) {
 			c.GitLab.Project = p
 			if src != nil {
 				src["gitlab.project"] = "env: CI_PROJECT_PATH"
+			}
+		}
+	}
+	if c.GitHub.Token == "" {
+		if v := os.Getenv("GITHUB_TOKEN"); v != "" {
+			c.GitHub.Token = v
+			if src != nil {
+				src["github.token"] = "env: GITHUB_TOKEN"
 			}
 		}
 	}

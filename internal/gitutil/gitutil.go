@@ -6,14 +6,16 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"strings"
 	"time"
 
 	gogit "github.com/go-git/go-git/v5"
 	gitconfig "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
-	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/plumbing/storer"
+	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
+	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 
 	"git.k3nny.fr/releaser/internal/branch"
 )
@@ -241,13 +243,51 @@ func CreateTag(repo *gogit.Repository, tagName string) error {
 
 // Push pushes the given branch and tag to the "origin" remote.
 // When token is non-empty, go-git is used with HTTPS basic auth (oauth2/token) — suitable for CI.
-// When token is empty, the system git binary is invoked so that credential helpers,
-// SSH agents, and netrc are all available as they would be for a regular git push.
+// When token is empty and the remote URL is SSH, go-git SSH agent auth is attempted first.
+// Falls back to the system git binary so that credential helpers, netrc, and SSH keys work normally.
 func Push(repo *gogit.Repository, branchName, tagName, token string) error {
 	if token != "" {
 		return pushWithGoGit(repo, branchName, tagName, token)
 	}
+	// Try SSH agent auth when the remote URL uses SSH transport.
+	if remote, err := repo.Remote("origin"); err == nil {
+		urls := remote.Config().URLs
+		if len(urls) > 0 && isSSHURL(urls[0]) {
+			if err := pushWithSSHAgent(repo, branchName, tagName); err == nil {
+				return nil
+			}
+		}
+	}
 	return pushWithCLI(repo, branchName, tagName)
+}
+
+func isSSHURL(u string) bool {
+	return strings.HasPrefix(u, "git@") || strings.HasPrefix(u, "ssh://")
+}
+
+func pushWithSSHAgent(repo *gogit.Repository, branchName, tagName string) error {
+	auth, err := gitssh.NewSSHAgentAuth("git")
+	if err != nil {
+		return err
+	}
+
+	remote, err := repo.Remote("origin")
+	if err != nil {
+		return fmt.Errorf("remote origin not found: %w", err)
+	}
+
+	opts := &gogit.PushOptions{
+		RefSpecs: []gitconfig.RefSpec{
+			gitconfig.RefSpec(fmt.Sprintf("refs/heads/%s:refs/heads/%s", branchName, branchName)),
+			gitconfig.RefSpec(fmt.Sprintf("refs/tags/%s:refs/tags/%s", tagName, tagName)),
+		},
+		Auth: auth,
+	}
+
+	if err := remote.Push(opts); err != nil && !errors.Is(err, gogit.NoErrAlreadyUpToDate) {
+		return fmt.Errorf("git push via SSH agent: %w", err)
+	}
+	return nil
 }
 
 func pushWithGoGit(repo *gogit.Repository, branchName, tagName, token string) error {

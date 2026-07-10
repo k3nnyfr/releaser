@@ -3,6 +3,25 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.4.0] - 2026-07-11
+
+### Added
+
+- **GitHub release support** — new `internal/ghclient` package (minimal HTTP client, no SDK); configured via `github.token` + `github.repo` in `.releaser.yml` or `GITHUB_TOKEN` env var; GitHub takes precedence over GitLab when both are configured
+- **SSH agent push** — `gitutil.Push()` now attempts go-git SSH agent auth (`gitssh.NewSSHAgentAuth`) for `git@` / `ssh://` remotes before falling back to the system `git` binary; no extra configuration needed
+- **`--release-env-file` flag** — override the dotenv artifact path (relative to repo root; default `release.env`); pass `""` to disable writing the file entirely (e.g. for local runs)
+- **`git.releasable_types` config** — opt-in list of commit types that count as releasable (`fix`, `feat`, `breaking`); defaults to all three; useful for maintenance branches where some types should not trigger a release
+- **`commits.Group()`, `ExtractSubject()`, `ReleasableSet()`** — exported helpers in `internal/commits`; shared by `notes` and `changelog`, eliminating duplicated grouping and subject-extraction logic
+- **CHANGELOG deduplication guard** — `changelog.Update()` is now idempotent; skips the write if a `## [version]` section already exists, preventing duplicate entries on CI reruns
+- **Publisher interface** — `releasePublisher` interface + `buildPublisher()` in `cmd/main.go`; GitLab and GitHub are now interchangeable backends; new providers can be added without touching the orchestration logic
+- **`artifacts: reports: dotenv: release.env`** in `.releaser.gitlab-ci.yml` — exposes `NEXT_VERSION` to downstream GitLab CI jobs out of the box
+
+### Changed
+
+- **Always load config sources** — `LoadWithSources()` is now called unconditionally instead of only in `--verbose` mode; single code path, no behavioural difference
+- **`version.Next()` signature** — accepts a `map[commits.Type]bool` releasable set as a fifth parameter; `nil` defaults to all three types (no change to existing behaviour)
+- **Verbose config table** — now includes `git.releasable_types`, `github.token`, and `github.repo` rows
+
 ## [1.3.0] - 2026-07-07
 
 ### Added
