@@ -61,12 +61,13 @@ All seed cases must pass. The table below is authoritative — keep it in sync w
 | `internal/branch` | `FuzzParse` | parses branch name strings |
 | `internal/changelog` | `FuzzUpdate` | rewrites arbitrary existing file content |
 | `internal/commits` | `FuzzParse` | parses arbitrary commit message strings |
+| `internal/gradle` | `FuzzReadVersion`, `FuzzWriteVersion` | reads/rewrites arbitrary Gradle build file content |
 | `internal/glclient` | `FuzzEncodeProjectPath` | encodes arbitrary project path strings |
 | `internal/maven` | `FuzzReadVersion`, `FuzzReplaceProjectVersion` | reads/rewrites arbitrary XML file content |
 | `internal/node` | `FuzzReadVersion`, `FuzzWriteVersion` | reads/rewrites arbitrary JSON file content |
 | `internal/notes` | `FuzzGenerate` | generates notes from arbitrary commit messages |
 
-Packages **not** requiring fuzz tests (no free-form text parsing): `internal/config` (yaml.v3 handles parsing), `internal/ghclient` (HTTP client, no text parsing), `internal/gitutil` (git operations), `internal/version` (typed inputs only), `cmd` (CLI orchestration).
+Packages **not** requiring fuzz tests (no free-form text parsing): `internal/config` (yaml.v3 handles parsing), `internal/ghclient` (HTTP client, no text parsing), `internal/gitutil` (git operations), `internal/version` (typed inputs only), `cmd` (CLI orchestration). When adding a new package, check whether it parses text or rewrites files — if yes, add a row above.
 
 Fuzz seed corpus guidelines:
 - Include a realistic happy-path input as the first seed.

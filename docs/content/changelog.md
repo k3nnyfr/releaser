@@ -3,6 +3,23 @@ title: Changelog
 weight: 50
 ---
 
+## v1.6.0 — 2026-07-11
+
+### Added
+
+- **Gradle support** — opt-in via `gradle.build_file` (single path) or `gradle.build_files` (list, overrides single); supports both Groovy DSL (`version = '1.2.3'`) and Kotlin DSL (`version = "1.2.3"`); original quote style preserved on write; `--gradle <path>` CLI flag for one-off overrides
+
+## v1.5.1 — 2026-07-11
+
+### Added
+
+- **Documentation site** — Hugo + Geekdoc; installation, CLI reference, configuration, CI integration, and changelog pages; deployed to `gh-pages` via Gitea CI on push to `main`
+- **`FuzzUpdate`** in `internal/changelog` and **`FuzzWriteVersion`** in `internal/node` — complete fuzz coverage for all file-rewriting packages
+
+### Changed
+
+- **CLAUDE.md** — fuzzing completeness guidelines with authoritative table
+
 ## v1.5.0 — 2026-07-11
 
 ### Added

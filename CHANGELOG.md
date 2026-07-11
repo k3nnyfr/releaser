@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.6.0] - 2026-07-11
+
+### Added
+
+- **Gradle support** — new `internal/gradle` package; reads and writes the version assignment in `build.gradle` (Groovy DSL, single-quoted) and `build.gradle.kts` (Kotlin DSL, double-quoted); original quote style preserved on write; `regexp.QuoteMeta` ensures version strings with dots or special chars are safe
+- **`gradle.build_file` / `gradle.build_files` config** — opt-in, no default; `build_files` list overrides `build_file` for multi-module projects; follows the same multi-value pattern as `maven.pom_paths` and `node.package_jsons`
+- **`--gradle <path>` flag** — overrides `gradle.build_file` from config and clears `gradle.build_files`; mirrored in verbose config table as `gradle.paths`
+- **`FuzzReadVersion` / `FuzzWriteVersion`** in `internal/gradle` — 100% per-package statement coverage maintained across all 13 packages
+
 ## [1.5.1] - 2026-07-11
 
 ### Added

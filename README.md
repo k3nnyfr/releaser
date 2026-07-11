@@ -1,6 +1,6 @@
 # releaser
 
-![release](https://img.shields.io/badge/release-v1.5.1-blue.svg)
+![release](https://img.shields.io/badge/release-v1.6.0-blue.svg)
 
 A CI-friendly release automation tool for GitFlow workflows using Conventional Commits.
 
@@ -23,7 +23,7 @@ release/1.2 branch
 2. **Tag discovery** — finds the latest tag matching `major.minor.*` on the current branch
 3. **Commit analysis** — parses Conventional Commits between last tag and HEAD
 4. **Version bump** — increments patch (the minor is owned by the branch)
-5. **Release** — updates `pom.xml`, commits, tags, creates GitLab or GitHub release
+5. **Release** — updates `pom.xml` / `package.json` / `build.gradle`, commits, tags, creates GitLab or GitHub release
 
 ## Version bump rules
 
@@ -114,6 +114,12 @@ node:                                                # opt-in — no default; om
   # package_jsons:                                   # monorepo: list overrides package_json
   #   - "packages/frontend/package.json"
   #   - "packages/backend/package.json"
+
+gradle:                                              # opt-in — no default; omit to skip
+  # build_file: "build.gradle"                       # Groovy or Kotlin DSL; single path
+  # build_files:                                     # multi-module: list overrides build_file
+  #   - "build.gradle"
+  #   - "module-a/build.gradle"
 
 gitlab:
   url: "https://gitlab.example.com"                  # or env CI_SERVER_URL

@@ -292,6 +292,52 @@ func TestApplyEnvWithSourcesCIServerURL(t *testing.T) {
 	}
 }
 
+func TestGradleEffectiveBuildFiles(t *testing.T) {
+	// Neither set → nil (opt-in)
+	if got := (GradleConfig{}).EffectiveBuildFiles(); got != nil {
+		t.Errorf("empty config: got %v, want nil", got)
+	}
+	// BuildFile only
+	if got := (GradleConfig{BuildFile: "build.gradle"}).EffectiveBuildFiles(); len(got) != 1 || got[0] != "build.gradle" {
+		t.Errorf("BuildFile only: got %v", got)
+	}
+	// BuildFiles wins over BuildFile
+	g := GradleConfig{BuildFile: "build.gradle", BuildFiles: []string{"a/build.gradle", "b/build.gradle"}}
+	if got := g.EffectiveBuildFiles(); len(got) != 2 || got[0] != "a/build.gradle" {
+		t.Errorf("BuildFiles priority: got %v", got)
+	}
+}
+
+func TestLoadGradleSources(t *testing.T) {
+	dir := t.TempDir()
+	content := "gradle:\n  build_file: \"build.gradle\"\n"
+	if err := os.WriteFile(filepath.Join(dir, filename), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, src, err := LoadWithSources(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if src["gradle.build_file"] != "config file" {
+		t.Errorf("src[gradle.build_file] = %q, want %q", src["gradle.build_file"], "config file")
+	}
+}
+
+func TestLoadGradleBuildFilesSources(t *testing.T) {
+	dir := t.TempDir()
+	content := "gradle:\n  build_files:\n    - \"a/build.gradle\"\n    - \"b/build.gradle\"\n"
+	if err := os.WriteFile(filepath.Join(dir, filename), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, src, err := LoadWithSources(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if src["gradle.build_files"] != "config file" {
+		t.Errorf("src[gradle.build_files] = %q, want %q", src["gradle.build_files"], "config file")
+	}
+}
+
 func TestLoadPartialOverride(t *testing.T) {
 	dir := t.TempDir()
 	// Only override tag_prefix — commit_message should keep its default

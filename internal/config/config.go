@@ -17,6 +17,7 @@ type Config struct {
 	Git    GitConfig    `yaml:"git"`
 	Maven  MavenConfig  `yaml:"maven"`
 	Node   NodeConfig   `yaml:"node"`
+	Gradle GradleConfig `yaml:"gradle"`
 	GitLab GitLabConfig `yaml:"gitlab"`
 	GitHub GitHubConfig `yaml:"github"`
 }
@@ -73,6 +74,23 @@ func (n NodeConfig) EffectivePaths() []string {
 	return nil
 }
 
+type GradleConfig struct {
+	BuildFile  string   `yaml:"build_file"`  // single path (opt-in, no default)
+	BuildFiles []string `yaml:"build_files"` // multiple paths; overrides BuildFile
+}
+
+// EffectiveBuildFiles returns the list of Gradle build file paths to process.
+// Returns nil when no gradle paths are configured (gradle processing is opt-in).
+func (g GradleConfig) EffectiveBuildFiles() []string {
+	if len(g.BuildFiles) > 0 {
+		return g.BuildFiles
+	}
+	if g.BuildFile != "" {
+		return []string{g.BuildFile}
+	}
+	return nil
+}
+
 type GitLabConfig struct {
 	URL     string `yaml:"url"`
 	Token   string `yaml:"token"`
@@ -117,6 +135,8 @@ func defaultSources() Sources {
 		"maven.pom_paths":         "default",
 		"node.package_json":       "default",
 		"node.package_jsons":      "default",
+		"gradle.build_file":       "default",
+		"gradle.build_files":      "default",
 		"gitlab.url":              "default",
 		"gitlab.token":            "default",
 		"gitlab.project":          "default",
@@ -192,6 +212,12 @@ func LoadWithSources(dir string) (Config, Sources, error) {
 	}
 	if len(overlay.Node.PackageJSONs) > 0 {
 		src["node.package_jsons"] = "config file"
+	}
+	if overlay.Gradle.BuildFile != "" {
+		src["gradle.build_file"] = "config file"
+	}
+	if len(overlay.Gradle.BuildFiles) > 0 {
+		src["gradle.build_files"] = "config file"
 	}
 	if overlay.GitLab.URL != "" {
 		src["gitlab.url"] = "config file"

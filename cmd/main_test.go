@@ -1093,7 +1093,8 @@ func TestPrintVerboseConfigBumpRulesAndNode(t *testing.T) {
 		Git: config.GitConfig{
 			BumpRules: config.BumpRulesConfig{Breaking: "minor", Feat: "minor", Fix: "minor"},
 		},
-		Node: config.NodeConfig{PackageJSON: "package.json"},
+		Node:   config.NodeConfig{PackageJSON: "package.json"},
+		Gradle: config.GradleConfig{BuildFile: "build.gradle"},
 	}
 	src := config.Sources{}
 
@@ -1111,6 +1112,9 @@ func TestPrintVerboseConfigBumpRulesAndNode(t *testing.T) {
 	}
 	if !strings.Contains(output, "package.json") {
 		t.Error("expected 'package.json' in output for node.paths")
+	}
+	if !strings.Contains(output, "build.gradle") {
+		t.Error("expected 'build.gradle' in output for gradle.paths")
 	}
 }
 
@@ -1198,5 +1202,116 @@ func TestRunNodeWriteVersionFails(t *testing.T) {
 	err = execCmd(t, "--branch", "release/1.2", "--repo", dir)
 	if err == nil {
 		t.Fatal("expected error when package.json is read-only")
+	}
+}
+
+// ── gradle build file handling ────────────────────────────────────────────────
+
+func writeGradleFile(t *testing.T, dir, ver string) {
+	t.Helper()
+	content := fmt.Sprintf("group = \"com.example\"\nversion = \"%s\"\n", ver)
+	if err := os.WriteFile(filepath.Join(dir, "build.gradle"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunGradleVersionBump(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeGradleFile(t, dir, "0.0.0")
+	commitAll(t, repo, dir, "chore: init")
+
+	os.WriteFile(filepath.Join(dir, ".releaser.yml"), []byte("gradle:\n  build_file: \"build.gradle\"\n"), 0644)
+
+	addFile(t, dir, "x.go", "// fix")
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: something", &gogit.CommitOptions{Author: testSig()})
+
+	if err := execCmd(t, "--no-push", "--branch", "release/1.2", "--repo", dir); err != nil {
+		t.Fatalf("gradle version bump: unexpected error: %v", err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(dir, "build.gradle"))
+	if !strings.Contains(string(data), `version = "1.2.0"`) {
+		t.Errorf("expected version 1.2.0 in build.gradle, got: %s", data)
+	}
+}
+
+func TestRunGradleOverrideFlag(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Write gradle file at custom path
+	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	content := "version = \"0.0.0\"\n"
+	os.WriteFile(filepath.Join(dir, "sub", "build.gradle"), []byte(content), 0644)
+	commitAll(t, repo, dir, "chore: init")
+
+	addFile(t, dir, "x.go", "// fix")
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: something", &gogit.CommitOptions{Author: testSig()})
+
+	if err := execCmd(t, "--no-push", "--branch", "release/1.2", "--repo", dir, "--gradle", "sub/build.gradle"); err != nil {
+		t.Fatalf("--gradle flag: unexpected error: %v", err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(dir, "sub", "build.gradle"))
+	if !strings.Contains(string(data), `version = "1.2.0"`) {
+		t.Errorf("expected version 1.2.0, got: %s", data)
+	}
+}
+
+func TestRunGradleReadVersionFails(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// build.gradle with no version assignment
+	os.WriteFile(filepath.Join(dir, "build.gradle"), []byte(`group = "com.example"`), 0644)
+	commitAll(t, repo, dir, "chore: init")
+
+	os.WriteFile(filepath.Join(dir, ".releaser.yml"), []byte("gradle:\n  build_file: \"build.gradle\"\n"), 0644)
+
+	addFile(t, dir, "x.go", "// fix")
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: something", &gogit.CommitOptions{Author: testSig()})
+
+	if err := execCmd(t, "--branch", "release/1.2", "--repo", dir); err == nil {
+		t.Fatal("expected error when build.gradle has no version assignment")
+	}
+}
+
+func TestRunGradleWriteVersionFails(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeGradleFile(t, dir, "0.0.0")
+	commitAll(t, repo, dir, "chore: init")
+
+	os.WriteFile(filepath.Join(dir, ".releaser.yml"), []byte("gradle:\n  build_file: \"build.gradle\"\n"), 0644)
+
+	addFile(t, dir, "x.go", "// fix")
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: something", &gogit.CommitOptions{Author: testSig()})
+
+	os.Chmod(filepath.Join(dir, "build.gradle"), 0444)
+	defer os.Chmod(filepath.Join(dir, "build.gradle"), 0644)
+
+	if err := execCmd(t, "--branch", "release/1.2", "--repo", dir); err == nil {
+		t.Fatal("expected error when build.gradle is read-only")
 	}
 }

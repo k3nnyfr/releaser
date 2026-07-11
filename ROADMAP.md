@@ -85,5 +85,5 @@
 
 ## Future / backlog
 
-- Gradle support (`build.gradle` / `build.gradle.kts`)
+- ~~Gradle support (`build.gradle` / `build.gradle.kts`)~~ — ✓ shipped v1.6.0 (`internal/gradle`; Groovy + Kotlin DSL; multi-module via `gradle.build_files`; `--gradle` flag)
 - Slack / Teams notification on release

@@ -50,6 +50,17 @@ git:
   #   - "packages/frontend/package.json"
   #   - "packages/backend/package.json"
 
+# gradle:
+  # Single build.gradle or build.gradle.kts path (opt-in — no default).
+  # Both Groovy DSL (single-quoted) and Kotlin DSL (double-quoted) are supported.
+  # build_file: "build.gradle"
+
+  # Multiple build files for multi-module projects (overrides build_file).
+  # build_files:
+  #   - "build.gradle"
+  #   - "module-a/build.gradle"
+  #   - "module-b/build.gradle"
+
 gitlab:
   # GitLab instance URL. Falls back to the CI_SERVER_URL environment variable.
   # url: "https://gitlab.example.com"

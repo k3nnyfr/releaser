@@ -18,6 +18,7 @@ import (
 	"git.k3nny.fr/releaser/internal/ghclient"
 	"git.k3nny.fr/releaser/internal/gitutil"
 	"git.k3nny.fr/releaser/internal/glclient"
+	"git.k3nny.fr/releaser/internal/gradle"
 	"git.k3nny.fr/releaser/internal/maven"
 	"git.k3nny.fr/releaser/internal/node"
 	"git.k3nny.fr/releaser/internal/notes"
@@ -77,6 +78,17 @@ node:
   #   - "package.json"
   #   - "packages/frontend/package.json"
   #   - "packages/backend/package.json"
+
+gradle:
+  # Single build.gradle or build.gradle.kts path (opt-in — no default).
+  # Both Groovy DSL (single-quoted) and Kotlin DSL (double-quoted) are supported.
+  # build_file: "build.gradle"
+
+  # Multiple build files for multi-module projects (overrides build_file).
+  # build_files:
+  #   - "build.gradle"
+  #   - "module-a/build.gradle"
+  #   - "module-b/build.gradle"
 
 gitlab:
   # GitLab instance URL. Falls back to the CI_SERVER_URL environment variable.
@@ -149,6 +161,7 @@ func newRootCmd() *cobra.Command {
 		branchOverride  string
 		repoPath        string
 		pomOverride     string
+		gradleOverride  string
 		changelogFile   string
 		tagPrefixFlag   string
 		tagPrefixSet    bool
@@ -171,6 +184,7 @@ func newRootCmd() *cobra.Command {
 				repoPath:       repoPath,
 				branchOverride: branchOverride,
 				pomOverride:    pomOverride,
+				gradleOverride: gradleOverride,
 				changelogFile:  changelogFile,
 				tagPrefixFlag:  tagPrefixFlag,
 				tagPrefixSet:   tagPrefixSet,
@@ -196,6 +210,7 @@ func newRootCmd() *cobra.Command {
 	root.Flags().StringVar(&branchOverride, "branch", "", "override branch name detection (required in detached HEAD)")
 	root.Flags().StringVar(&repoPath, "repo", ".", "path to git repository")
 	root.Flags().StringVar(&pomOverride, "pom", "", "override maven.pom_path from config")
+	root.Flags().StringVar(&gradleOverride, "gradle", "", "override gradle.build_file from config")
 	root.Flags().StringVar(&changelogFile, "changelog-file", "CHANGELOG.md", "path to changelog file relative to repo root")
 	root.Flags().StringVar(&tagPrefixFlag, "tag-prefix", "", "override git.tag_prefix from config")
 	root.Flags().StringVar(&patternFlag, "branch-pattern", "", "override git.branch_pattern from config")
@@ -215,22 +230,23 @@ func main() {
 }
 
 type options struct {
-	init           bool
-	verbose        bool
-	repoPath       string
-	branchOverride string
-	pomOverride    string
-	changelogFile  string
-	tagPrefixFlag  string
-	tagPrefixSet   bool
-	patternFlag    string
-	patternSet     bool
-	dryRun         bool
-	noPush         bool
-	noRelease      bool
-	noCommit       bool
-	tagOnly        bool
-	releaseEnvFile string
+	init            bool
+	verbose         bool
+	repoPath        string
+	branchOverride  string
+	pomOverride     string
+	gradleOverride  string
+	changelogFile   string
+	tagPrefixFlag   string
+	tagPrefixSet    bool
+	patternFlag     string
+	patternSet      bool
+	dryRun          bool
+	noPush          bool
+	noRelease       bool
+	noCommit        bool
+	tagOnly         bool
+	releaseEnvFile  string
 }
 
 func printVerboseConfig(cfg config.Config, src config.Sources) {
@@ -268,6 +284,13 @@ func printVerboseConfig(cfg config.Config, src config.Sources) {
 		{"maven.pom_paths", strings.Join(cfg.Maven.EffectivePomPaths(), ", ")},
 		{"node.paths", func() string {
 			paths := cfg.Node.EffectivePaths()
+			if len(paths) == 0 {
+				return "(not configured)"
+			}
+			return strings.Join(paths, ", ")
+		}()},
+		{"gradle.paths", func() string {
+			paths := cfg.Gradle.EffectiveBuildFiles()
 			if len(paths) == 0 {
 				return "(not configured)"
 			}
@@ -359,6 +382,11 @@ func run(o options) error {
 		cfg.Maven.PomPath = o.pomOverride
 		cfg.Maven.PomPaths = nil
 		src["maven.pom_paths"] = "flag: --pom"
+	}
+	if o.gradleOverride != "" {
+		cfg.Gradle.BuildFile = o.gradleOverride
+		cfg.Gradle.BuildFiles = nil
+		src["gradle.build_files"] = "flag: --gradle"
 	}
 	if o.patternSet {
 		cfg.Git.BranchPattern = o.patternFlag
@@ -550,6 +578,20 @@ func run(o options) error {
 			}
 			logDone("%s: %s → %s", relPkgPath, currentNodeVersion, nextVersion)
 			filesToCommit = append(filesToCommit, relPkgPath)
+		}
+
+		// build.gradle / build.gradle.kts (opt-in via gradle.build_file / gradle.build_files)
+		for _, relGradlePath := range cfg.Gradle.EffectiveBuildFiles() {
+			gradlePath := filepath.Join(absRepo, relGradlePath)
+			currentGradleVersion, err := gradle.ReadVersion(gradlePath)
+			if err != nil {
+				return fmt.Errorf("read gradle version: %w", err)
+			}
+			if err := gradle.WriteVersion(gradlePath, currentGradleVersion, nextVersion); err != nil {
+				return fmt.Errorf("update gradle version: %w", err)
+			}
+			logDone("%s: %s → %s", relGradlePath, currentGradleVersion, nextVersion)
+			filesToCommit = append(filesToCommit, relGradlePath)
 		}
 
 		// CHANGELOG.md

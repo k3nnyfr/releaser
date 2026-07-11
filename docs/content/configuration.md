@@ -45,6 +45,14 @@ node:                                                # opt-in — omit section t
   #   - "packages/frontend/package.json"
   #   - "packages/backend/package.json"
 
+gradle:                                              # opt-in — omit section to skip
+  # build_file: "build.gradle"                       # Groovy or Kotlin DSL; single path
+
+  # Multi-module: list overrides build_file.
+  # build_files:
+  #   - "build.gradle"
+  #   - "module-a/build.gradle"
+
 gitlab:
   url: "https://gitlab.example.com"                  # or env CI_SERVER_URL
   token: ""                                          # prefer env GITLAB_TOKEN
@@ -119,3 +127,24 @@ node:
     - "packages/frontend/package.json"
     - "packages/backend/package.json"
 ```
+
+## Gradle support
+
+The `gradle` section is opt-in — if omitted, no build file is touched. Both Groovy DSL (`version = '1.2.3'`) and Kotlin DSL (`version = "1.2.3"`) are supported; the original quote style is preserved on write.
+
+```yaml
+gradle:
+  build_file: "build.gradle"
+```
+
+Use `build_files` for multi-module projects:
+
+```yaml
+gradle:
+  build_files:
+    - "build.gradle"
+    - "module-a/build.gradle"
+    - "module-b/build.gradle"
+```
+
+The `--gradle <path>` CLI flag sets a single build file path and clears `build_files`.
