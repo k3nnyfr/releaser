@@ -1,6 +1,6 @@
 # build output
 /bin/
-releaser-*
+/releaser-*
 
 # test coverage
 coverage.out
