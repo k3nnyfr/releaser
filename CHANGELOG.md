@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.6.2] - 2026-07-11
+
+### Changed
+
+- **`task ci` now runs `go tool staticcheck ./...`** — runs between `go vet` and `go test`; matches the step already present in the Gitea CI workflow
+
+### Fixed
+
+- **SA4006 in `TestLatestTagTagsIterFails`** — `err` from `gogit.PlainOpen` was assigned then immediately overwritten without being read; added the missing `if err != nil { t.Fatalf(...) }` check
+
 ## [1.6.1] - 2026-07-11
 
 ### Fixed
