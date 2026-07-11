@@ -1101,6 +1101,7 @@ func TestPrintVerboseConfigBumpRulesAndNode(t *testing.T) {
 		},
 		Node:   config.NodeConfig{PackageJSON: "package.json"},
 		Gradle: config.GradleConfig{BuildFile: "build.gradle"},
+		Python: config.PythonConfig{PyprojectTOML: "pyproject.toml"},
 	}
 	src := config.Sources{}
 
@@ -1121,6 +1122,9 @@ func TestPrintVerboseConfigBumpRulesAndNode(t *testing.T) {
 	}
 	if !strings.Contains(output, "build.gradle") {
 		t.Error("expected 'build.gradle' in output for gradle.paths")
+	}
+	if !strings.Contains(output, "pyproject.toml") {
+		t.Error("expected 'pyproject.toml' in output for python.paths")
 	}
 }
 
@@ -1319,5 +1323,145 @@ func TestRunGradleWriteVersionFails(t *testing.T) {
 
 	if err := execCmd(t, "--branch", "release/1.2", "--repo", dir); err == nil {
 		t.Fatal("expected error when build.gradle is read-only")
+	}
+}
+
+// ── pyproject.toml handling ───────────────────────────────────────────────────
+
+func writePyprojectFile(t *testing.T, dir, ver string) {
+	t.Helper()
+	content := fmt.Sprintf("[project]\nname = \"my-app\"\nversion = \"%s\"\n", ver)
+	if err := os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunPyprojectVersionBump(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writePyprojectFile(t, dir, "0.0.0")
+	commitAll(t, repo, dir, "chore: init")
+
+	os.WriteFile(filepath.Join(dir, ".releaser.yml"), []byte("python:\n  pyproject_toml: \"pyproject.toml\"\n"), 0644)
+
+	addFile(t, dir, "x.go", "// fix")
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: something", &gogit.CommitOptions{Author: testSig()})
+
+	if err := execCmd(t, "--no-push", "--branch", "release/1.2", "--repo", dir); err != nil {
+		t.Fatalf("pyproject version bump: unexpected error: %v", err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(dir, "pyproject.toml"))
+	if !strings.Contains(string(data), `version = "1.2.0"`) {
+		t.Errorf("expected version 1.2.0 in pyproject.toml, got: %s", data)
+	}
+}
+
+func TestRunPyprojectPoetryVersionBump(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := "[tool.poetry]\nname = \"my-app\"\nversion = \"0.0.0\"\n"
+	os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte(content), 0644)
+	commitAll(t, repo, dir, "chore: init")
+
+	os.WriteFile(filepath.Join(dir, ".releaser.yml"), []byte("python:\n  pyproject_toml: \"pyproject.toml\"\n"), 0644)
+
+	addFile(t, dir, "x.go", "// fix")
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: something", &gogit.CommitOptions{Author: testSig()})
+
+	if err := execCmd(t, "--no-push", "--branch", "release/1.2", "--repo", dir); err != nil {
+		t.Fatalf("poetry version bump: unexpected error: %v", err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(dir, "pyproject.toml"))
+	if !strings.Contains(string(data), `version = "1.2.0"`) {
+		t.Errorf("expected version 1.2.0 in pyproject.toml, got: %s", data)
+	}
+}
+
+func TestRunPyprojectOverrideFlag(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	content := "[project]\nversion = \"0.0.0\"\n"
+	os.WriteFile(filepath.Join(dir, "sub", "pyproject.toml"), []byte(content), 0644)
+	commitAll(t, repo, dir, "chore: init")
+
+	addFile(t, dir, "x.go", "// fix")
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: something", &gogit.CommitOptions{Author: testSig()})
+
+	if err := execCmd(t, "--no-push", "--branch", "release/1.2", "--repo", dir, "--pyproject", "sub/pyproject.toml"); err != nil {
+		t.Fatalf("--pyproject flag: unexpected error: %v", err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(dir, "sub", "pyproject.toml"))
+	if !strings.Contains(string(data), `version = "1.2.0"`) {
+		t.Errorf("expected version 1.2.0, got: %s", data)
+	}
+}
+
+func TestRunPyprojectReadVersionFails(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// pyproject.toml with no version field
+	os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte("[build-system]\nrequires=[]\n"), 0644)
+	commitAll(t, repo, dir, "chore: init")
+
+	os.WriteFile(filepath.Join(dir, ".releaser.yml"), []byte("python:\n  pyproject_toml: \"pyproject.toml\"\n"), 0644)
+
+	addFile(t, dir, "x.go", "// fix")
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: something", &gogit.CommitOptions{Author: testSig()})
+
+	if err := execCmd(t, "--branch", "release/1.2", "--repo", dir); err == nil {
+		t.Fatal("expected error when pyproject.toml has no version")
+	}
+}
+
+func TestRunPyprojectWriteVersionFails(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("skipping: chmod restrictions do not apply when running as root")
+	}
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writePyprojectFile(t, dir, "0.0.0")
+	commitAll(t, repo, dir, "chore: init")
+
+	os.WriteFile(filepath.Join(dir, ".releaser.yml"), []byte("python:\n  pyproject_toml: \"pyproject.toml\"\n"), 0644)
+
+	addFile(t, dir, "x.go", "// fix")
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: something", &gogit.CommitOptions{Author: testSig()})
+
+	os.Chmod(filepath.Join(dir, "pyproject.toml"), 0444)
+	defer os.Chmod(filepath.Join(dir, "pyproject.toml"), 0644)
+
+	if err := execCmd(t, "--branch", "release/1.2", "--repo", dir); err == nil {
+		t.Fatal("expected error when pyproject.toml is read-only")
 	}
 }

@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.7.0] - 2026-07-12
+
+### Added
+
+- **Python `pyproject.toml` support** — new `internal/pyproject` package; reads `[project].version` (PEP 621) first, then `[tool.poetry].version` (Poetry); original formatting preserved on write; `regexp.QuoteMeta` ensures safety with dot-containing version strings
+- **`python.pyproject_toml` / `python.pyproject_tomls` config** — opt-in, no default; `pyproject_tomls` list overrides `pyproject_toml` for monorepos; follows the established multi-value pattern (Maven, Node, Gradle)
+- **`--pyproject <path>` flag** — overrides `python.pyproject_toml` and clears `pyproject_tomls`; shown in verbose config table as `python.paths`
+- **`FuzzReadVersion` / `FuzzWriteVersion`** in `internal/pyproject` — 100% per-package statement coverage maintained across all 14 packages
+
 ## [1.6.3] - 2026-07-11
 
 ### Added

@@ -53,6 +53,14 @@ gradle:                                              # opt-in — omit section t
   #   - "build.gradle"
   #   - "module-a/build.gradle"
 
+python:                                              # opt-in — omit section to skip
+  # pyproject_toml: "pyproject.toml"                 # PEP 621 [project].version or [tool.poetry].version
+
+  # Monorepo: list overrides pyproject_toml.
+  # pyproject_tomls:
+  #   - "pyproject.toml"
+  #   - "packages/cli/pyproject.toml"
+
 gitlab:
   url: "https://gitlab.example.com"                  # or env CI_SERVER_URL
   token: ""                                          # prefer env GITLAB_TOKEN
@@ -127,6 +135,27 @@ node:
     - "packages/frontend/package.json"
     - "packages/backend/package.json"
 ```
+
+## Python support
+
+The `python` section is opt-in — if omitted, no `pyproject.toml` is touched. `releaser` reads `[project].version` (PEP 621) first; if not found it falls back to `[tool.poetry].version`. The original file formatting is preserved on write.
+
+```yaml
+python:
+  pyproject_toml: "pyproject.toml"
+```
+
+Use `pyproject_tomls` for monorepos:
+
+```yaml
+python:
+  pyproject_tomls:
+    - "pyproject.toml"
+    - "packages/cli/pyproject.toml"
+    - "packages/lib/pyproject.toml"
+```
+
+The `--pyproject <path>` CLI flag sets a single path and clears `pyproject_tomls`.
 
 ## Gradle support
 

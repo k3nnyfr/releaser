@@ -86,5 +86,5 @@
 ## Future / backlog
 
 - ~~Gradle support (`build.gradle` / `build.gradle.kts`)~~ — ✓ shipped v1.6.0 (`internal/gradle`; Groovy + Kotlin DSL; multi-module via `gradle.build_files`; `--gradle` flag)
-- Python `pyproject.toml` version bump (`[project].version` and `[tool.poetry].version`; single and multi-path like Maven's `pom_paths`)
+- ~~Python `pyproject.toml` version bump (`[project].version` and `[tool.poetry].version`; single and multi-path like Maven's `pom_paths`)~~ — ✓ shipped v1.7.0 (`internal/pyproject`; PEP 621 + Poetry; `python.pyproject_tomls`; `--pyproject` flag)
 - Slack / Teams notification on release

@@ -17,8 +17,9 @@ type Config struct {
 	Git    GitConfig    `yaml:"git"`
 	Maven  MavenConfig  `yaml:"maven"`
 	Node   NodeConfig   `yaml:"node"`
-	Gradle GradleConfig `yaml:"gradle"`
-	GitLab GitLabConfig `yaml:"gitlab"`
+	Gradle  GradleConfig  `yaml:"gradle"`
+	Python  PythonConfig  `yaml:"python"`
+	GitLab  GitLabConfig  `yaml:"gitlab"`
 	GitHub GitHubConfig `yaml:"github"`
 }
 
@@ -91,6 +92,23 @@ func (g GradleConfig) EffectiveBuildFiles() []string {
 	return nil
 }
 
+type PythonConfig struct {
+	PyprojectTOML  string   `yaml:"pyproject_toml"`  // single path (opt-in, no default)
+	PyprojectTOMLs []string `yaml:"pyproject_tomls"` // multiple paths; overrides PyprojectTOML
+}
+
+// EffectivePaths returns the list of pyproject.toml paths to process.
+// Returns nil when no python paths are configured (python processing is opt-in).
+func (p PythonConfig) EffectivePaths() []string {
+	if len(p.PyprojectTOMLs) > 0 {
+		return p.PyprojectTOMLs
+	}
+	if p.PyprojectTOML != "" {
+		return []string{p.PyprojectTOML}
+	}
+	return nil
+}
+
 type GitLabConfig struct {
 	URL     string `yaml:"url"`
 	Token   string `yaml:"token"`
@@ -135,9 +153,11 @@ func defaultSources() Sources {
 		"maven.pom_paths":         "default",
 		"node.package_json":       "default",
 		"node.package_jsons":      "default",
-		"gradle.build_file":       "default",
-		"gradle.build_files":      "default",
-		"gitlab.url":              "default",
+		"gradle.build_file":        "default",
+		"gradle.build_files":       "default",
+		"python.pyproject_toml":    "default",
+		"python.pyproject_tomls":   "default",
+		"gitlab.url":               "default",
 		"gitlab.token":            "default",
 		"gitlab.project":          "default",
 		"github.token":            "default",
@@ -218,6 +238,12 @@ func LoadWithSources(dir string) (Config, Sources, error) {
 	}
 	if len(overlay.Gradle.BuildFiles) > 0 {
 		src["gradle.build_files"] = "config file"
+	}
+	if overlay.Python.PyprojectTOML != "" {
+		src["python.pyproject_toml"] = "config file"
+	}
+	if len(overlay.Python.PyprojectTOMLs) > 0 {
+		src["python.pyproject_tomls"] = "config file"
 	}
 	if overlay.GitLab.URL != "" {
 		src["gitlab.url"] = "config file"

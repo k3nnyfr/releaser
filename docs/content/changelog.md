@@ -3,6 +3,12 @@ title: Changelog
 weight: 50
 ---
 
+## v1.7.0 — 2026-07-12
+
+### Added
+
+- **Python `pyproject.toml` support** — opt-in via `python.pyproject_toml` (single) or `python.pyproject_tomls` (list); reads `[project].version` (PEP 621) first, then `[tool.poetry].version`; original formatting preserved; `--pyproject <path>` CLI flag for one-off overrides
+
 ## v1.6.0 — 2026-07-11
 
 ### Added

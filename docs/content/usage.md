@@ -40,6 +40,7 @@ releaser --verbose --dry-run
 | `--tag-prefix <prefix>` | `""` | Prefix for version tags (e.g. `v` → `v1.2.3`) |
 | `--pom <path>` | `pom.xml` | Path to pom.xml relative to repo root |
 | `--gradle <path>` | — | Override `gradle.build_file` from config |
+| `--pyproject <path>` | — | Override `python.pyproject_toml` from config |
 | `--changelog-file <path>` | `CHANGELOG.md` | Path to changelog file |
 | `--release-env-file <path>` | `release.env` | Path for dotenv artifact; pass `""` to disable |
 | `--no-commit` | false | Update version files but stop before committing |

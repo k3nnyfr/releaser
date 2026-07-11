@@ -62,6 +62,7 @@ All seed cases must pass. The table below is authoritative — keep it in sync w
 | `internal/changelog` | `FuzzUpdate` | rewrites arbitrary existing file content |
 | `internal/commits` | `FuzzParse` | parses arbitrary commit message strings |
 | `internal/gradle` | `FuzzReadVersion`, `FuzzWriteVersion` | reads/rewrites arbitrary Gradle build file content |
+| `internal/pyproject` | `FuzzReadVersion`, `FuzzWriteVersion` | reads/rewrites arbitrary pyproject.toml content |
 | `internal/glclient` | `FuzzEncodeProjectPath` | encodes arbitrary project path strings |
 | `internal/maven` | `FuzzReadVersion`, `FuzzReplaceProjectVersion` | reads/rewrites arbitrary XML file content |
 | `internal/node` | `FuzzReadVersion`, `FuzzWriteVersion` | reads/rewrites arbitrary JSON file content |

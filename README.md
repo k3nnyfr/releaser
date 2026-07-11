@@ -2,7 +2,7 @@
 
 <img src="docs/static/images/releaser-logo-128.png" alt="releaser logo" width="128">
 
-![release](https://img.shields.io/badge/release-v1.6.3-blue.svg)
+![release](https://img.shields.io/badge/release-v1.7.0-blue.svg)
 
 A CI-friendly release automation tool for GitFlow workflows using Conventional Commits.
 
@@ -124,6 +124,12 @@ gradle:                                              # opt-in — no default; om
   # build_files:                                     # multi-module: list overrides build_file
   #   - "build.gradle"
   #   - "module-a/build.gradle"
+
+python:                                              # opt-in — no default; omit to skip
+  # pyproject_toml: "pyproject.toml"                 # PEP 621 [project] or [tool.poetry]
+  # pyproject_tomls:                                 # monorepo: list overrides pyproject_toml
+  #   - "pyproject.toml"
+  #   - "packages/cli/pyproject.toml"
 
 gitlab:
   url: "https://gitlab.example.com"                  # or env CI_SERVER_URL

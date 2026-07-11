@@ -50,6 +50,16 @@ git:
   #   - "packages/frontend/package.json"
   #   - "packages/backend/package.json"
 
+# python:
+  # Single pyproject.toml path (opt-in — no default).
+  # Reads [project].version (PEP 621) first, then [tool.poetry].version.
+  # pyproject_toml: "pyproject.toml"
+
+  # Multiple pyproject.toml paths for monorepos (overrides pyproject_toml).
+  # pyproject_tomls:
+  #   - "pyproject.toml"
+  #   - "packages/cli/pyproject.toml"
+
 # gradle:
   # Single build.gradle or build.gradle.kts path (opt-in — no default).
   # Both Groovy DSL (single-quoted) and Kotlin DSL (double-quoted) are supported.

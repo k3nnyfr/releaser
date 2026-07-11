@@ -20,6 +20,7 @@ import (
 	"git.k3nny.fr/releaser/internal/glclient"
 	"git.k3nny.fr/releaser/internal/gradle"
 	"git.k3nny.fr/releaser/internal/maven"
+	"git.k3nny.fr/releaser/internal/pyproject"
 	"git.k3nny.fr/releaser/internal/node"
 	"git.k3nny.fr/releaser/internal/notes"
 	semver "git.k3nny.fr/releaser/internal/version"
@@ -89,6 +90,17 @@ gradle:
   #   - "build.gradle"
   #   - "module-a/build.gradle"
   #   - "module-b/build.gradle"
+
+python:
+  # Single pyproject.toml path (opt-in — no default).
+  # Reads [project].version (PEP 621) first, then [tool.poetry].version.
+  # pyproject_toml: "pyproject.toml"
+
+  # Multiple pyproject.toml paths for monorepos (overrides pyproject_toml).
+  # pyproject_tomls:
+  #   - "pyproject.toml"
+  #   - "packages/cli/pyproject.toml"
+  #   - "packages/lib/pyproject.toml"
 
 gitlab:
   # GitLab instance URL. Falls back to the CI_SERVER_URL environment variable.
@@ -161,8 +173,9 @@ func newRootCmd() *cobra.Command {
 		branchOverride  string
 		repoPath        string
 		pomOverride     string
-		gradleOverride  string
-		changelogFile   string
+		gradleOverride     string
+		pyprojectOverride  string
+		changelogFile      string
 		tagPrefixFlag   string
 		tagPrefixSet    bool
 		patternFlag     string
@@ -184,8 +197,9 @@ func newRootCmd() *cobra.Command {
 				repoPath:       repoPath,
 				branchOverride: branchOverride,
 				pomOverride:    pomOverride,
-				gradleOverride: gradleOverride,
-				changelogFile:  changelogFile,
+				gradleOverride:    gradleOverride,
+				pyprojectOverride: pyprojectOverride,
+				changelogFile:     changelogFile,
 				tagPrefixFlag:  tagPrefixFlag,
 				tagPrefixSet:   tagPrefixSet,
 				patternFlag:    patternFlag,
@@ -211,6 +225,7 @@ func newRootCmd() *cobra.Command {
 	root.Flags().StringVar(&repoPath, "repo", ".", "path to git repository")
 	root.Flags().StringVar(&pomOverride, "pom", "", "override maven.pom_path from config")
 	root.Flags().StringVar(&gradleOverride, "gradle", "", "override gradle.build_file from config")
+	root.Flags().StringVar(&pyprojectOverride, "pyproject", "", "override python.pyproject_toml from config")
 	root.Flags().StringVar(&changelogFile, "changelog-file", "CHANGELOG.md", "path to changelog file relative to repo root")
 	root.Flags().StringVar(&tagPrefixFlag, "tag-prefix", "", "override git.tag_prefix from config")
 	root.Flags().StringVar(&patternFlag, "branch-pattern", "", "override git.branch_pattern from config")
@@ -235,9 +250,10 @@ type options struct {
 	repoPath        string
 	branchOverride  string
 	pomOverride     string
-	gradleOverride  string
-	changelogFile   string
-	tagPrefixFlag   string
+	gradleOverride    string
+	pyprojectOverride string
+	changelogFile     string
+	tagPrefixFlag     string
 	tagPrefixSet    bool
 	patternFlag     string
 	patternSet      bool
@@ -291,6 +307,13 @@ func printVerboseConfig(cfg config.Config, src config.Sources) {
 		}()},
 		{"gradle.paths", func() string {
 			paths := cfg.Gradle.EffectiveBuildFiles()
+			if len(paths) == 0 {
+				return "(not configured)"
+			}
+			return strings.Join(paths, ", ")
+		}()},
+		{"python.paths", func() string {
+			paths := cfg.Python.EffectivePaths()
 			if len(paths) == 0 {
 				return "(not configured)"
 			}
@@ -387,6 +410,11 @@ func run(o options) error {
 		cfg.Gradle.BuildFile = o.gradleOverride
 		cfg.Gradle.BuildFiles = nil
 		src["gradle.build_files"] = "flag: --gradle"
+	}
+	if o.pyprojectOverride != "" {
+		cfg.Python.PyprojectTOML = o.pyprojectOverride
+		cfg.Python.PyprojectTOMLs = nil
+		src["python.pyproject_tomls"] = "flag: --pyproject"
 	}
 	if o.patternSet {
 		cfg.Git.BranchPattern = o.patternFlag
@@ -592,6 +620,20 @@ func run(o options) error {
 			}
 			logDone("%s: %s → %s", relGradlePath, currentGradleVersion, nextVersion)
 			filesToCommit = append(filesToCommit, relGradlePath)
+		}
+
+		// pyproject.toml (opt-in via python.pyproject_toml / python.pyproject_tomls)
+		for _, relPyprojectPath := range cfg.Python.EffectivePaths() {
+			pyprojectPath := filepath.Join(absRepo, relPyprojectPath)
+			currentPyVersion, err := pyproject.ReadVersion(pyprojectPath)
+			if err != nil {
+				return fmt.Errorf("read pyproject version: %w", err)
+			}
+			if err := pyproject.WriteVersion(pyprojectPath, currentPyVersion, nextVersion); err != nil {
+				return fmt.Errorf("update pyproject version: %w", err)
+			}
+			logDone("%s: %s → %s", relPyprojectPath, currentPyVersion, nextVersion)
+			filesToCommit = append(filesToCommit, relPyprojectPath)
 		}
 
 		// CHANGELOG.md

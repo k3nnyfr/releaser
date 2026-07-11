@@ -338,6 +338,49 @@ func TestLoadGradleBuildFilesSources(t *testing.T) {
 	}
 }
 
+func TestPythonEffectivePaths(t *testing.T) {
+	if got := (PythonConfig{}).EffectivePaths(); got != nil {
+		t.Errorf("empty config: got %v, want nil", got)
+	}
+	if got := (PythonConfig{PyprojectTOML: "pyproject.toml"}).EffectivePaths(); len(got) != 1 || got[0] != "pyproject.toml" {
+		t.Errorf("single path: got %v", got)
+	}
+	p := PythonConfig{PyprojectTOML: "pyproject.toml", PyprojectTOMLs: []string{"a/pyproject.toml", "b/pyproject.toml"}}
+	if got := p.EffectivePaths(); len(got) != 2 || got[0] != "a/pyproject.toml" {
+		t.Errorf("multi-path priority: got %v", got)
+	}
+}
+
+func TestLoadPythonSources(t *testing.T) {
+	dir := t.TempDir()
+	content := "python:\n  pyproject_toml: \"pyproject.toml\"\n"
+	if err := os.WriteFile(filepath.Join(dir, filename), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, src, err := LoadWithSources(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if src["python.pyproject_toml"] != "config file" {
+		t.Errorf("src[python.pyproject_toml] = %q, want %q", src["python.pyproject_toml"], "config file")
+	}
+}
+
+func TestLoadPythonPathsSources(t *testing.T) {
+	dir := t.TempDir()
+	content := "python:\n  pyproject_tomls:\n    - \"a/pyproject.toml\"\n    - \"b/pyproject.toml\"\n"
+	if err := os.WriteFile(filepath.Join(dir, filename), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, src, err := LoadWithSources(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if src["python.pyproject_tomls"] != "config file" {
+		t.Errorf("src[python.pyproject_tomls] = %q, want %q", src["python.pyproject_tomls"], "config file")
+	}
+}
+
 func TestLoadPartialOverride(t *testing.T) {
 	dir := t.TempDir()
 	// Only override tag_prefix — commit_message should keep its default
