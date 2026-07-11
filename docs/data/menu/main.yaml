@@ -1,0 +1,16 @@
+main:
+  - name: Installation
+    ref: /installation
+    weight: 10
+  - name: CLI Reference
+    ref: /usage
+    weight: 20
+  - name: Configuration
+    ref: /configuration
+    weight: 30
+  - name: CI Integration
+    ref: /ci-integration
+    weight: 40
+  - name: Changelog
+    ref: /changelog
+    weight: 50

@@ -1,0 +1,67 @@
+name: docs
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+      - '.gitea/workflows/docs.yml'
+
+vars:
+  HUGO_VERSION: "0.128.2"
+  GEEKDOC_VERSION: "v4.1.1"
+
+jobs:
+  deploy:
+    name: Build and deploy docs
+    runs-on: ubuntu-latest
+    container:
+      image: alpine:latest
+
+    steps:
+      - name: Install tools
+        run: apk add --no-cache curl git tar
+
+      - name: Checkout
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SERVER_URL: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+        run: |
+          git clone --depth 1 \
+            "$(echo "$SERVER_URL" | sed "s|https://|https://oauth2:${TOKEN}@|")/${REPO}.git" .
+
+      - name: Install Hugo
+        env:
+          HUGO_VERSION: ${{ vars.HUGO_VERSION }}
+        run: |
+          curl -sSL "https://github.com/gohugoio/hugo/releases/download/v${HUGO_VERSION}/hugo_${HUGO_VERSION}_Linux-64bit.tar.gz" \
+            | tar xz -C /usr/local/bin hugo
+
+      - name: Download Geekdoc theme
+        env:
+          GEEKDOC_VERSION: ${{ vars.GEEKDOC_VERSION }}
+        run: |
+          mkdir -p docs/themes/geekdoc
+          curl -sSL "https://github.com/thegeeklab/hugo-geekdoc/releases/download/${GEEKDOC_VERSION}/hugo-geekdoc.tar.gz" \
+            | tar xz -C docs/themes/geekdoc
+
+      - name: Build
+        run: hugo --source docs --destination public --minify
+
+      - name: Deploy to pages branch
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SERVER_URL: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+        run: |
+          cd docs/public
+          git init
+          git config user.email "ci@git.k3nny.fr"
+          git config user.name "Gitea CI"
+          git add .
+          git commit -m "deploy docs $(date +%Y-%m-%dT%H:%M:%SZ)"
+          git push --force \
+            "$(echo "$SERVER_URL" | sed "s|https://|https://oauth2:${TOKEN}@|")/${REPO}.git" \
+            HEAD:gh-pages

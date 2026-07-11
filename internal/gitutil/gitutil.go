@@ -3,15 +3,19 @@ package gitutil
 import (
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
 	"sort"
+	"strings"
 	"time"
 
 	gogit "github.com/go-git/go-git/v5"
 	gitconfig "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
-	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/plumbing/storer"
+	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
+	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 
 	"git.k3nny.fr/releaser/internal/branch"
 )
@@ -81,14 +85,9 @@ func LatestTag(repo *gogit.Repository, info branch.Info) (string, int, error) {
 			return nil
 		}
 
-		commitHash, err := resolveTagToCommit(repo, ref)
+		tagCommit, err := resolveTagToCommitObj(repo, ref)
 		if err != nil {
 			return nil // silently skip malformed tags
-		}
-
-		tagCommit, err := repo.CommitObject(commitHash)
-		if err != nil {
-			return nil
 		}
 
 		if tagCommit.Hash == headCommit.Hash {
@@ -97,7 +96,10 @@ func LatestTag(repo *gogit.Repository, info branch.Info) (string, int, error) {
 		}
 
 		anc, err := tagCommit.IsAncestor(headCommit)
-		if err != nil || !anc {
+		if err != nil {
+			return err
+		}
+		if !anc {
 			return nil
 		}
 
@@ -194,15 +196,17 @@ func AuthorFromConfig(repo *gogit.Repository) (name, email string) {
 	return
 }
 
-// CommitFile stages filePath (relative to worktree root) and creates a commit.
-func CommitFile(repo *gogit.Repository, filePath, message, authorName, authorEmail string) (plumbing.Hash, error) {
+// CommitFiles stages all filePaths (relative to worktree root) and creates a commit.
+func CommitFiles(repo *gogit.Repository, filePaths []string, message, authorName, authorEmail string) (plumbing.Hash, error) {
 	w, err := repo.Worktree()
 	if err != nil {
 		return plumbing.ZeroHash, err
 	}
 
-	if _, err := w.Add(filePath); err != nil {
-		return plumbing.ZeroHash, fmt.Errorf("git add %s: %w", filePath, err)
+	for _, p := range filePaths {
+		if _, err := w.Add(p); err != nil {
+			return plumbing.ZeroHash, fmt.Errorf("git add %s: %w", p, err)
+		}
 	}
 
 	hash, err := w.Commit(message, &gogit.CommitOptions{
@@ -218,6 +222,11 @@ func CommitFile(repo *gogit.Repository, filePath, message, authorName, authorEma
 	return hash, nil
 }
 
+// CommitFile stages a single file and creates a commit.
+func CommitFile(repo *gogit.Repository, filePath, message, authorName, authorEmail string) (plumbing.Hash, error) {
+	return CommitFiles(repo, []string{filePath}, message, authorName, authorEmail)
+}
+
 // CreateTag creates a lightweight tag on HEAD.
 func CreateTag(repo *gogit.Repository, tagName string) error {
 	head, err := repo.Head()
@@ -230,10 +239,42 @@ func CreateTag(repo *gogit.Repository, tagName string) error {
 	return nil
 }
 
+// sshPush is the function used for SSH agent push; replaced in tests to avoid requiring a live agent.
+var sshPush = pushWithSSHAgent
+
+// newSSHAgentAuth creates an SSH agent auth method; replaced in tests.
+var newSSHAgentAuth = gitssh.NewSSHAgentAuth
+
 // Push pushes the given branch and tag to the "origin" remote.
-// If token is non-empty, HTTPS basic auth (oauth2/token) is used.
-// Passing an empty token lets go-git use the system credential helper or SSH agent.
+// When token is non-empty, go-git is used with HTTPS basic auth (oauth2/token) — suitable for CI.
+// When token is empty and the remote URL is SSH, go-git SSH agent auth is attempted first.
+// Falls back to the system git binary so that credential helpers, netrc, and SSH keys work normally.
 func Push(repo *gogit.Repository, branchName, tagName, token string) error {
+	if token != "" {
+		return pushWithGoGit(repo, branchName, tagName, token)
+	}
+	// Try SSH agent auth when the remote URL uses SSH transport.
+	if remote, err := repo.Remote("origin"); err == nil {
+		urls := remote.Config().URLs
+		if len(urls) > 0 && isSSHURL(urls[0]) {
+			if err := sshPush(repo, branchName, tagName); err == nil {
+				return nil
+			}
+		}
+	}
+	return pushWithCLI(repo, branchName, tagName)
+}
+
+func isSSHURL(u string) bool {
+	return strings.HasPrefix(u, "git@") || strings.HasPrefix(u, "ssh://")
+}
+
+func pushWithSSHAgent(repo *gogit.Repository, branchName, tagName string) error {
+	auth, err := newSSHAgentAuth("git")
+	if err != nil {
+		return err
+	}
+
 	remote, err := repo.Remote("origin")
 	if err != nil {
 		return fmt.Errorf("remote origin not found: %w", err)
@@ -244,13 +285,30 @@ func Push(repo *gogit.Repository, branchName, tagName, token string) error {
 			gitconfig.RefSpec(fmt.Sprintf("refs/heads/%s:refs/heads/%s", branchName, branchName)),
 			gitconfig.RefSpec(fmt.Sprintf("refs/tags/%s:refs/tags/%s", tagName, tagName)),
 		},
+		Auth: auth,
 	}
 
-	if token != "" {
-		opts.Auth = &githttp.BasicAuth{
+	if err := remote.Push(opts); err != nil && !errors.Is(err, gogit.NoErrAlreadyUpToDate) {
+		return fmt.Errorf("git push via SSH agent: %w", err)
+	}
+	return nil
+}
+
+func pushWithGoGit(repo *gogit.Repository, branchName, tagName, token string) error {
+	remote, err := repo.Remote("origin")
+	if err != nil {
+		return fmt.Errorf("remote origin not found: %w", err)
+	}
+
+	opts := &gogit.PushOptions{
+		RefSpecs: []gitconfig.RefSpec{
+			gitconfig.RefSpec(fmt.Sprintf("refs/heads/%s:refs/heads/%s", branchName, branchName)),
+			gitconfig.RefSpec(fmt.Sprintf("refs/tags/%s:refs/tags/%s", tagName, tagName)),
+		},
+		Auth: &githttp.BasicAuth{
 			Username: "oauth2",
 			Password: token,
-		}
+		},
 	}
 
 	if err := remote.Push(opts); err != nil && !errors.Is(err, gogit.NoErrAlreadyUpToDate) {
@@ -259,22 +317,49 @@ func Push(repo *gogit.Repository, branchName, tagName, token string) error {
 	return nil
 }
 
-// resolveTagToCommit follows tag objects until it reaches a commit.
+func pushWithCLI(repo *gogit.Repository, branchName, tagName string) error {
+	wt, err := repo.Worktree()
+	if err != nil {
+		return fmt.Errorf("get worktree: %w", err)
+	}
+
+	cmd := exec.Command("git", "-C", wt.Filesystem.Root(), "push", "origin",
+		fmt.Sprintf("HEAD:refs/heads/%s", branchName),
+		fmt.Sprintf("refs/tags/%s:refs/tags/%s", tagName, tagName),
+	)
+	cmd.Stdout = os.Stderr // git push status goes to stderr conventionally
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("git push: %w", err)
+	}
+	return nil
+}
+
+// resolveTagToCommitObj follows tag objects until it reaches a commit and returns it.
 // Handles both lightweight tags (ref → commit) and annotated tags (ref → tag object → … → commit).
-func resolveTagToCommit(repo *gogit.Repository, ref *plumbing.Reference) (plumbing.Hash, error) {
+func resolveTagToCommitObj(repo *gogit.Repository, ref *plumbing.Reference) (*object.Commit, error) {
 	hash := ref.Hash()
 	for {
 		obj, err := repo.Object(plumbing.AnyObject, hash)
 		if err != nil {
-			return plumbing.ZeroHash, err
+			return nil, err
 		}
 		switch o := obj.(type) {
 		case *object.Commit:
-			return o.Hash, nil
+			return o, nil
 		case *object.Tag:
 			hash = o.Target
 		default:
-			return plumbing.ZeroHash, fmt.Errorf("unexpected object type %s at %s", obj.Type(), hash)
+			return nil, fmt.Errorf("unexpected object type %s at %s", obj.Type(), hash)
 		}
 	}
+}
+
+// resolveTagToCommit follows tag objects until it reaches a commit and returns its hash.
+func resolveTagToCommit(repo *gogit.Repository, ref *plumbing.Reference) (plumbing.Hash, error) {
+	c, err := resolveTagToCommitObj(repo, ref)
+	if err != nil {
+		return plumbing.ZeroHash, err
+	}
+	return c.Hash, nil
 }

@@ -1,0 +1,21 @@
+baseURL = "/"
+title = "releaser"
+theme = "geekdoc"
+
+pygmentsUseClasses = true
+pygmentsCodeFences = true
+
+[markup]
+  [markup.goldmark.renderer]
+    unsafe = true
+  [markup.tableOfContents]
+    startLevel = 1
+    endLevel = 9
+
+[params]
+  geekdocRepo = "https://git.k3nny.fr/releaser"
+  geekdocEditPath = "edit/main/docs/content"
+  geekdocSearch = true
+  geekdocMenuBundle = true
+  geekdocBreadcrumb = false
+  geekdocToC = true

@@ -35,6 +35,64 @@ func FuzzParse(f *testing.F) {
 	})
 }
 
+func TestExtractSubject(t *testing.T) {
+	cases := []struct {
+		header string
+		want   string
+	}{
+		{"feat: add login", "add login"},
+		{"feat(auth): add OAuth2", "add OAuth2"},
+		{"feat!: remove API", "remove API"},
+		{"FIX:typo", "typo"},
+		{"plain message", "plain message"},
+	}
+	for _, c := range cases {
+		got := ExtractSubject(c.header)
+		if got != c.want {
+			t.Errorf("ExtractSubject(%q) = %q, want %q", c.header, got, c.want)
+		}
+	}
+}
+
+func TestGroup(t *testing.T) {
+	messages := []string{
+		"feat: add login",
+		"fix: patch null pointer",
+		"feat!: remove legacy API",
+		"chore: update deps",
+		"fix: handle empty response",
+	}
+	breaking, feats, fixes := Group(messages)
+	if len(breaking) != 1 || breaking[0] != "remove legacy API" {
+		t.Errorf("breaking = %v, want [remove legacy API]", breaking)
+	}
+	if len(feats) != 1 || feats[0] != "add login" {
+		t.Errorf("feats = %v, want [add login]", feats)
+	}
+	if len(fixes) != 2 {
+		t.Errorf("fixes = %v, want 2 items", fixes)
+	}
+}
+
+func TestReleasableSet(t *testing.T) {
+	all := ReleasableSet(nil)
+	if !all[TypeFix] || !all[TypeFeat] || !all[TypeBreaking] {
+		t.Error("nil input should return all three types")
+	}
+	only := ReleasableSet([]string{"fix"})
+	if !only[TypeFix] || only[TypeFeat] || only[TypeBreaking] {
+		t.Errorf("fix-only set: %v", only)
+	}
+	onlyFeat := ReleasableSet([]string{"feat"})
+	if onlyFeat[TypeFix] || !onlyFeat[TypeFeat] || onlyFeat[TypeBreaking] {
+		t.Errorf("feat-only set: %v", onlyFeat)
+	}
+	onlyBreaking := ReleasableSet([]string{"breaking"})
+	if onlyBreaking[TypeFix] || onlyBreaking[TypeFeat] || !onlyBreaking[TypeBreaking] {
+		t.Errorf("breaking-only set: %v", onlyBreaking)
+	}
+}
+
 func TestTypeString(t *testing.T) {
 	cases := []struct {
 		t    Type

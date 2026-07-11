@@ -2,10 +2,13 @@ package main
 
 import (
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +16,8 @@ import (
 	gitcfg "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+
+	"git.k3nny.fr/releaser/internal/config"
 )
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -211,6 +216,7 @@ func TestRunPomOverride(t *testing.T) {
 }
 
 func TestRunMissingPom(t *testing.T) {
+	// --pom points to a non-existent file: pom update is skipped, tag is still created.
 	_, dir := setupRepo(t)
 	addFile(t, dir, "x.go", "// fix")
 	repo, _ := gogit.PlainOpen(dir)
@@ -218,10 +224,38 @@ func TestRunMissingPom(t *testing.T) {
 	w.Add("x.go")
 	w.Commit("fix: patch", &gogit.CommitOptions{Author: testSig()})
 
-	// Use --pom to point to a non-existent file; keeps the working tree clean.
-	err := execCmd(t, "--branch", "release/1.2", "--repo", dir, "--pom", "nonexistent.xml")
-	if err == nil {
-		t.Fatal("expected error for missing pom.xml")
+	err := execCmd(t, "--no-push", "--branch", "release/1.2", "--repo", dir, "--pom", "nonexistent.xml")
+	if err != nil {
+		t.Fatalf("missing pom should be skipped, got error: %v", err)
+	}
+
+	// Tag must still have been created.
+	repo2, _ := gogit.PlainOpen(dir)
+	_, err = repo2.Tag("1.2.0")
+	if err != nil {
+		t.Error("expected tag 1.2.0 to be created")
+	}
+}
+
+func TestRunNoPomAtDefaultPath(t *testing.T) {
+	// Repo with no pom.xml at the default path: runs without error, creates tag.
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addFile(t, dir, "main.go", "package main")
+	commitAll(t, repo, dir, "fix: initial")
+
+	err = execCmd(t, "--no-push", "--branch", "release/2.0", "--repo", dir)
+	if err != nil {
+		t.Fatalf("no pom.xml should not be an error: %v", err)
+	}
+
+	repo2, _ := gogit.PlainOpen(dir)
+	_, err = repo2.Tag("2.0.0")
+	if err != nil {
+		t.Error("expected tag 2.0.0 to be created")
 	}
 }
 
@@ -335,12 +369,12 @@ func TestRunDuplicateTag(t *testing.T) {
 	w.Add("x.go")
 	w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
 
-	// Pre-create a v1.2.0 ref pointing to a garbage hash.
+	// Pre-create a 1.2.0 ref pointing to a garbage hash.
 	// LatestTag skips it (resolveTagToCommit fails for garbage hash),
-	// so run() calculates "v1.2.0" as the first-ever version — then
-	// CreateTag("v1.2.0") fails because the ref already exists.
+	// so run() calculates "1.2.0" as the first-ever version — then
+	// CreateTag("1.2.0") fails because the ref already exists.
 	fakeRef := plumbing.NewHashReference(
-		plumbing.NewTagReferenceName("v1.2.0"),
+		plumbing.NewTagReferenceName("1.2.0"),
 		plumbing.NewHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
 	)
 	if err := repo.Storer.SetReference(fakeRef); err != nil {
@@ -349,7 +383,7 @@ func TestRunDuplicateTag(t *testing.T) {
 
 	err := execCmd(t, "--tag-only", "--no-push", "--branch", "release/1.2", "--repo", dir)
 	if err == nil {
-		t.Fatal("expected error: v1.2.0 ref already exists")
+		t.Fatal("expected error: 1.2.0 ref already exists")
 	}
 }
 
@@ -400,9 +434,9 @@ func TestRunGitLabError(t *testing.T) {
 func TestRunWithPreviousTag(t *testing.T) {
 	repo, dir := setupRepo(t)
 
-	// Tag the initial commit as v1.2.0 (simulates a prior release)
+	// Tag the initial commit as 1.2.0 (simulates a prior release)
 	initialHead, _ := repo.Head()
-	repo.CreateTag("v1.2.0", initialHead.Hash(), nil)
+	repo.CreateTag("1.2.0", initialHead.Hash(), nil)
 
 	// Fix commit after the tag — run() will use CommitsSince, not AllCommits
 	addFile(t, dir, "x.go", "// fix")
@@ -428,6 +462,25 @@ func TestRunSkipGitLab(t *testing.T) {
 	err := execCmd(t, "--branch", "release/1.2", "--repo", dir)
 	if err != nil {
 		t.Fatalf("expected skip-gitlab success, got: %v", err)
+	}
+}
+
+func TestRunNoRelease(t *testing.T) {
+	_, dir := setupRepoWithRemote(t)
+	addFile(t, dir, "x.go", "// fix")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
+
+	// --no-release skips GitLab release even when credentials are configured
+	t.Setenv("CI_SERVER_URL", "https://gitlab.example.com")
+	t.Setenv("CI_PROJECT_ID", "42")
+	t.Setenv("GITLAB_TOKEN", "test-token")
+
+	err := execCmd(t, "--no-release", "--branch", "release/1.2", "--repo", dir)
+	if err != nil {
+		t.Fatalf("--no-release: unexpected error: %v", err)
 	}
 }
 
@@ -537,5 +590,734 @@ func TestMainError(t *testing.T) {
 
 	if gotCode != 1 {
 		t.Errorf("expected exit code 1 for general error, got %d", gotCode)
+	}
+}
+
+func TestRunInit(t *testing.T) {
+	dir := t.TempDir()
+	err := execCmd(t, "--init", "--repo", dir)
+	if err != nil {
+		t.Fatalf("--init: unexpected error: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, ".releaser.yml"))
+	if err != nil {
+		t.Fatal("expected .releaser.yml to be created")
+	}
+	if len(data) == 0 {
+		t.Error("expected non-empty .releaser.yml")
+	}
+}
+
+func TestRunInitAlreadyExists(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, ".releaser.yml"), []byte("existing"), 0644)
+	err := execCmd(t, "--init", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected error when .releaser.yml already exists")
+	}
+}
+
+func TestRunChangelogCreated(t *testing.T) {
+	_, dir := setupRepo(t)
+	addFile(t, dir, "x.go", "// feat")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("feat: add shiny feature", &gogit.CommitOptions{Author: testSig()})
+
+	err := execCmd(t, "--no-push", "--branch", "release/1.2", "--repo", dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "CHANGELOG.md"))
+	if err != nil {
+		t.Fatal("expected CHANGELOG.md to be created")
+	}
+	s := string(data)
+	if !strings.Contains(s, "## [1.2.0]") {
+		t.Error("expected version header in CHANGELOG")
+	}
+	if !strings.Contains(s, "add shiny feature") {
+		t.Error("expected feat subject in CHANGELOG")
+	}
+}
+
+func TestRunChangelogFile(t *testing.T) {
+	_, dir := setupRepo(t)
+	addFile(t, dir, "x.go", "// fix")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: something", &gogit.CommitOptions{Author: testSig()})
+
+	err := execCmd(t, "--no-push", "--branch", "release/1.2", "--repo", dir, "--changelog-file", "CHANGES.md")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, "CHANGES.md")); err != nil {
+		t.Error("expected CHANGES.md to be created")
+	}
+}
+
+func TestRunReleaseEnv(t *testing.T) {
+	_, dir := setupRepo(t)
+	addFile(t, dir, "x.go", "// fix")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: something", &gogit.CommitOptions{Author: testSig()})
+
+	err := execCmd(t, "--no-push", "--branch", "release/1.2", "--repo", dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "release.env"))
+	if err != nil {
+		t.Fatal("expected release.env to be created")
+	}
+	content := strings.TrimSpace(string(data))
+	if content != "NEXT_VERSION=1.2.0" {
+		t.Errorf("release.env content = %q, want %q", content, "NEXT_VERSION=1.2.0")
+	}
+}
+
+func TestRunReleaseEnvDryRun(t *testing.T) {
+	_, dir := setupRepo(t)
+	addFile(t, dir, "x.go", "// fix")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: something", &gogit.CommitOptions{Author: testSig()})
+
+	err := execCmd(t, "--dry-run", "--branch", "release/1.2", "--repo", dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, "release.env")); err == nil {
+		t.Error("release.env must not be created in --dry-run mode")
+	}
+}
+
+func TestRunVerbose(t *testing.T) {
+	_, dir := setupRepo(t)
+	addFile(t, dir, "x.go", "// feat")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("feat: add new thing", &gogit.CommitOptions{Author: testSig()})
+
+	// Capture stderr output by redirecting it temporarily.
+	old := os.Stderr
+	r, wPipe, _ := os.Pipe()
+	os.Stderr = wPipe
+
+	err := execCmd(t, "--dry-run", "--verbose", "--branch", "release/1.2", "--repo", dir)
+
+	wPipe.Close()
+	os.Stderr = old
+
+	rawBytes, _ := io.ReadAll(r)
+	output := string(rawBytes)
+
+	if err != nil {
+		t.Fatalf("--verbose: unexpected error: %v", err)
+	}
+
+	checks := []string{
+		"▸ configuration",
+		"git.tag_prefix",
+		"[default]",
+		"▸ branch",
+		"release/1.2",
+		"major=1, minor=2",
+		"▸ commits",
+		"feat: add new thing",
+		"patch bump",
+		"▸ version",
+	}
+	for _, want := range checks {
+		if !strings.Contains(output, want) {
+			t.Errorf("--verbose output missing %q\nfull output:\n%s", want, output)
+		}
+	}
+}
+
+// ── ui.go coverage ────────────────────────────────────────────────────────────
+
+func TestPaintColor(t *testing.T) {
+	old := useColor
+	useColor = true
+	defer func() { useColor = old }()
+
+	got := paint(ansiGreen, "hello")
+	if !strings.Contains(got, "hello") || !strings.Contains(got, ansiReset) || !strings.Contains(got, ansiGreen) {
+		t.Errorf("paint with color = %q", got)
+	}
+}
+
+func TestFmtSourceEnv(t *testing.T) {
+	old := useColor
+	useColor = false
+	defer func() { useColor = old }()
+
+	got := fmtSource("env: GITLAB_TOKEN")
+	if got != "[env: GITLAB_TOKEN]" {
+		t.Errorf("fmtSource env = %q", got)
+	}
+}
+
+func TestFmtSourceFlag(t *testing.T) {
+	old := useColor
+	useColor = false
+	defer func() { useColor = old }()
+
+	got := fmtSource("flag: --tag-prefix")
+	if got != "[flag: --tag-prefix]" {
+		t.Errorf("fmtSource flag = %q", got)
+	}
+}
+
+func TestFmtSourceConfigFile(t *testing.T) {
+	old := useColor
+	useColor = false
+	defer func() { useColor = old }()
+
+	got := fmtSource("config file")
+	if got != "[config file]" {
+		t.Errorf("fmtSource config file = %q", got)
+	}
+}
+
+// ── buildPublisher coverage ───────────────────────────────────────────────────
+
+func TestBuildPublisherGitHub(t *testing.T) {
+	cfg := config.Config{
+		GitHub: config.GitHubConfig{Token: "ghtoken", Repo: "owner/repo"},
+	}
+	pub, err := buildPublisher(cfg)
+	if err != nil {
+		t.Fatalf("buildPublisher GitHub: %v", err)
+	}
+	if pub == nil {
+		t.Fatal("expected non-nil publisher for GitHub config")
+	}
+}
+
+func TestBuildPublisherGitLabNoToken(t *testing.T) {
+	cfg := config.Config{
+		GitLab: config.GitLabConfig{URL: "https://gitlab.example.com", Project: "42"},
+	}
+	_, err := buildPublisher(cfg)
+	if err == nil {
+		t.Fatal("expected error when GitLab URL+Project set but token is empty")
+	}
+}
+
+// ── printVerboseConfig coverage ───────────────────────────────────────────────
+
+func TestPrintVerboseConfigDirect(t *testing.T) {
+	// Use a sparse Sources map (missing keys → source == "" → hits "default" branch).
+	// Also set non-empty ReleasableTypes and both tokens to cover those branches.
+	cfg := config.Config{
+		Git: config.GitConfig{
+			ReleasableTypes: []string{"fix", "feat"},
+		},
+		GitLab: config.GitLabConfig{Token: "secret"},
+		GitHub: config.GitHubConfig{Token: "ghsecret"},
+	}
+	src := config.Sources{} // empty → all lookups return ""
+
+	old := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	printVerboseConfig(cfg, src)
+
+	w.Close()
+	os.Stderr = old
+	out, _ := io.ReadAll(r)
+
+	if !strings.Contains(string(out), "fix, feat") {
+		t.Error("expected releasable types joined in output")
+	}
+	if !strings.Contains(string(out), "(set)") {
+		t.Error("expected '(set)' for configured tokens")
+	}
+}
+
+// ── initConfig coverage ───────────────────────────────────────────────────────
+
+func TestInitConfigWriteFails(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("skipping: chmod restrictions do not apply when running as root")
+	}
+	dir := t.TempDir()
+	os.Chmod(dir, 0555)
+	defer os.Chmod(dir, 0755)
+
+	err := initConfig(dir)
+	if err == nil {
+		t.Fatal("expected error writing .releaser.yml to read-only directory")
+	}
+}
+
+// ── run() injectable error paths ─────────────────────────────────────────────
+
+func TestRunVerboseInit(t *testing.T) {
+	dir := t.TempDir()
+	err := execCmd(t, "--init", "--verbose", "--repo", dir)
+	if err != nil {
+		t.Fatalf("--init --verbose: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".releaser.yml")); err != nil {
+		t.Error("expected .releaser.yml to be created")
+	}
+}
+
+func TestRunAbsPathError(t *testing.T) {
+	old := absPath
+	absPath = func(string) (string, error) { return "", fmt.Errorf("injected abs error") }
+	defer func() { absPath = old }()
+
+	err := execCmd(t, "--repo", ".")
+	if err == nil {
+		t.Fatal("expected error when filepath.Abs fails")
+	}
+}
+
+func TestRunWorkingTreeCheckFails(t *testing.T) {
+	_, dir := setupRepo(t)
+	addFile(t, dir, "x.go", "// fix")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
+
+	// Corrupt the git index so IsWorkingTreeClean fails.
+	os.WriteFile(filepath.Join(dir, ".git", "index"), []byte("garbage"), 0644)
+
+	err := execCmd(t, "--branch", "release/1.2", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected error for corrupt git index")
+	}
+}
+
+func TestRunLatestTagFails(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("skipping: chmod restrictions do not apply when running as root")
+	}
+	_, dir := setupRepo(t)
+	addFile(t, dir, "x.go", "// fix")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
+
+	tagsDir := filepath.Join(dir, ".git", "refs", "tags")
+	os.Chmod(tagsDir, 0000)
+	defer os.Chmod(tagsDir, 0755)
+
+	err := execCmd(t, "--dry-run", "--branch", "release/1.2", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected error for unreadable tags directory")
+	}
+}
+
+func TestRunAllCommitsError(t *testing.T) {
+	_, dir := setupRepo(t)
+	addFile(t, dir, "x.go", "// fix")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
+
+	old := gitAllCommits
+	gitAllCommits = func(_ *gogit.Repository) ([]string, error) {
+		return nil, fmt.Errorf("injected AllCommits error")
+	}
+	defer func() { gitAllCommits = old }()
+
+	err := execCmd(t, "--dry-run", "--branch", "release/1.2", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected error from AllCommits")
+	}
+}
+
+func TestRunCommitsSinceError(t *testing.T) {
+	repo, dir := setupRepo(t)
+	head, _ := repo.Head()
+	repo.CreateTag("1.2.0", head.Hash(), nil)
+
+	addFile(t, dir, "x.go", "// fix")
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
+
+	old := gitCommitsSince
+	gitCommitsSince = func(_ *gogit.Repository, _ string) ([]string, error) {
+		return nil, fmt.Errorf("injected CommitsSince error")
+	}
+	defer func() { gitCommitsSince = old }()
+
+	err := execCmd(t, "--dry-run", "--branch", "release/1.2", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected error from CommitsSince")
+	}
+}
+
+// ── verbose commit section coverage ──────────────────────────────────────────
+
+func TestRunVerboseBreakingAndFix(t *testing.T) {
+	// Covers: verbose "since: lastTag", message truncation (>70 chars),
+	// TypeBreaking color (ansiRed+ansiBold), TypeFix color (ansiGreen).
+	repo, dir := setupRepo(t)
+	head, _ := repo.Head()
+	repo.CreateTag("1.2.0", head.Hash(), nil)
+
+	w, _ := repo.Worktree()
+
+	addFile(t, dir, "a.go", "a")
+	w.Add("a.go")
+	w.Commit("feat!: redesign the entire public API surface which is a very long commit message header", &gogit.CommitOptions{Author: testSig()})
+
+	addFile(t, dir, "b.go", "b")
+	w.Add("b.go")
+	w.Commit("fix: correct null pointer in edge case handler", &gogit.CommitOptions{Author: testSig()})
+
+	old := os.Stderr
+	r, wp, _ := os.Pipe()
+	os.Stderr = wp
+
+	err := execCmd(t, "--dry-run", "--verbose", "--branch", "release/1.2", "--repo", dir)
+
+	wp.Close()
+	os.Stderr = old
+	io.ReadAll(r)
+
+	if err != nil {
+		t.Fatalf("verbose breaking+fix: unexpected error: %v", err)
+	}
+}
+
+// ── release.env write error ───────────────────────────────────────────────────
+
+func TestRunReleaseEnvWriteFails(t *testing.T) {
+	_, dir := setupRepo(t)
+	addFile(t, dir, "x.go", "// fix")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
+
+	// Empty directory is invisible to git — dirty check passes.
+	os.Mkdir(filepath.Join(dir, "release.env"), 0755)
+
+	err := execCmd(t, "--branch", "release/1.2", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected error when release.env is a directory")
+	}
+}
+
+// ── pom stat error ────────────────────────────────────────────────────────────
+
+func TestRunPomStatError(t *testing.T) {
+	// A null byte in the path makes os.Stat return EINVAL (not ErrNotExist),
+	// so hasPom=true and the stat error is propagated.
+	_, dir := setupRepo(t)
+	addFile(t, dir, "x.go", "// fix")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
+
+	err := execCmd(t, "--branch", "release/1.2", "--repo", dir, "--pom", "pom\x00.xml")
+	if err == nil {
+		t.Fatal("expected error for pom path with null byte (EINVAL)")
+	}
+}
+
+// ── changelog update error ────────────────────────────────────────────────────
+
+func TestRunChangelogUpdateFails(t *testing.T) {
+	_, dir := setupRepo(t)
+	addFile(t, dir, "x.go", "// fix")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
+
+	// Empty directory is invisible to git — dirty check passes.
+	// changelog.Update will fail trying to ReadFile on a directory.
+	os.Mkdir(filepath.Join(dir, "CHANGELOG.md"), 0755)
+
+	err := execCmd(t, "--branch", "release/1.2", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected error when CHANGELOG.md is a directory")
+	}
+}
+
+// ── CommitFiles error ─────────────────────────────────────────────────────────
+
+func TestRunCommitFilesError(t *testing.T) {
+	_, dir := setupRepo(t)
+	addFile(t, dir, "x.go", "// fix")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
+
+	old := gitCommitFiles
+	gitCommitFiles = func(_ *gogit.Repository, _ []string, _, _, _ string) (plumbing.Hash, error) {
+		return plumbing.ZeroHash, fmt.Errorf("injected commit error")
+	}
+	defer func() { gitCommitFiles = old }()
+
+	err := execCmd(t, "--branch", "release/1.2", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected error from CommitFiles")
+	}
+}
+
+// ── parseBumpRules coverage ───────────────────────────────────────────────────
+
+func TestParseBumpRules(t *testing.T) {
+	rules := config.BumpRulesConfig{Breaking: "minor", Feat: "minor", Fix: "minor"}
+	m := parseBumpRules(rules)
+	if len(m) != 3 {
+		t.Errorf("expected 3 entries in bump rules map, got %d", len(m))
+	}
+}
+
+// ── printVerboseConfig — bump_rules and node rows ─────────────────────────────
+
+func TestPrintVerboseConfigBumpRulesAndNode(t *testing.T) {
+	cfg := config.Config{
+		Git: config.GitConfig{
+			BumpRules: config.BumpRulesConfig{Breaking: "minor", Feat: "minor", Fix: "minor"},
+		},
+		Node:   config.NodeConfig{PackageJSON: "package.json"},
+		Gradle: config.GradleConfig{BuildFile: "build.gradle"},
+	}
+	src := config.Sources{}
+
+	old := os.Stderr
+	r, wp, _ := os.Pipe()
+	os.Stderr = wp
+	printVerboseConfig(cfg, src)
+	wp.Close()
+	os.Stderr = old
+	out, _ := io.ReadAll(r)
+	output := string(out)
+
+	if !strings.Contains(output, "minor") {
+		t.Error("expected 'minor' in output for bump_rules")
+	}
+	if !strings.Contains(output, "package.json") {
+		t.Error("expected 'package.json' in output for node.paths")
+	}
+	if !strings.Contains(output, "build.gradle") {
+		t.Error("expected 'build.gradle' in output for gradle.paths")
+	}
+}
+
+// ── node package.json handling ────────────────────────────────────────────────
+
+func writePackageJSON(t *testing.T, dir, ver string) {
+	t.Helper()
+	content := fmt.Sprintf(`{"name": "my-app", "version": "%s"}`, ver)
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunNodeVersionBump(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writePackageJSON(t, dir, "0.0.0")
+	commitAll(t, repo, dir, "chore: init")
+
+	// .releaser.yml is untracked — go-git IsClean ignores untracked files
+	os.WriteFile(filepath.Join(dir, ".releaser.yml"), []byte("node:\n  package_json: \"package.json\"\n"), 0644)
+
+	addFile(t, dir, "x.go", "// fix")
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: something", &gogit.CommitOptions{Author: testSig()})
+
+	err = execCmd(t, "--no-push", "--branch", "release/1.2", "--repo", dir)
+	if err != nil {
+		t.Fatalf("node version bump: unexpected error: %v", err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(dir, "package.json"))
+	if !strings.Contains(string(data), `"version": "1.2.0"`) {
+		t.Errorf("expected version 1.2.0 in package.json, got: %s", data)
+	}
+}
+
+func TestRunNodeReadVersionFails(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// invalid JSON — ReadVersion will fail
+	os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{not json`), 0644)
+	commitAll(t, repo, dir, "chore: init")
+
+	os.WriteFile(filepath.Join(dir, ".releaser.yml"), []byte("node:\n  package_json: \"package.json\"\n"), 0644)
+
+	addFile(t, dir, "x.go", "// fix")
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: something", &gogit.CommitOptions{Author: testSig()})
+
+	err = execCmd(t, "--branch", "release/1.2", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected error when package.json has invalid JSON")
+	}
+}
+
+func TestRunNodeWriteVersionFails(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writePackageJSON(t, dir, "0.0.0")
+	commitAll(t, repo, dir, "chore: init")
+
+	os.WriteFile(filepath.Join(dir, ".releaser.yml"), []byte("node:\n  package_json: \"package.json\"\n"), 0644)
+
+	addFile(t, dir, "x.go", "// fix")
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: something", &gogit.CommitOptions{Author: testSig()})
+
+	// Make package.json read-only so WriteVersion fails
+	os.Chmod(filepath.Join(dir, "package.json"), 0444)
+	defer os.Chmod(filepath.Join(dir, "package.json"), 0644)
+
+	err = execCmd(t, "--branch", "release/1.2", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected error when package.json is read-only")
+	}
+}
+
+// ── gradle build file handling ────────────────────────────────────────────────
+
+func writeGradleFile(t *testing.T, dir, ver string) {
+	t.Helper()
+	content := fmt.Sprintf("group = \"com.example\"\nversion = \"%s\"\n", ver)
+	if err := os.WriteFile(filepath.Join(dir, "build.gradle"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunGradleVersionBump(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeGradleFile(t, dir, "0.0.0")
+	commitAll(t, repo, dir, "chore: init")
+
+	os.WriteFile(filepath.Join(dir, ".releaser.yml"), []byte("gradle:\n  build_file: \"build.gradle\"\n"), 0644)
+
+	addFile(t, dir, "x.go", "// fix")
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: something", &gogit.CommitOptions{Author: testSig()})
+
+	if err := execCmd(t, "--no-push", "--branch", "release/1.2", "--repo", dir); err != nil {
+		t.Fatalf("gradle version bump: unexpected error: %v", err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(dir, "build.gradle"))
+	if !strings.Contains(string(data), `version = "1.2.0"`) {
+		t.Errorf("expected version 1.2.0 in build.gradle, got: %s", data)
+	}
+}
+
+func TestRunGradleOverrideFlag(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Write gradle file at custom path
+	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	content := "version = \"0.0.0\"\n"
+	os.WriteFile(filepath.Join(dir, "sub", "build.gradle"), []byte(content), 0644)
+	commitAll(t, repo, dir, "chore: init")
+
+	addFile(t, dir, "x.go", "// fix")
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: something", &gogit.CommitOptions{Author: testSig()})
+
+	if err := execCmd(t, "--no-push", "--branch", "release/1.2", "--repo", dir, "--gradle", "sub/build.gradle"); err != nil {
+		t.Fatalf("--gradle flag: unexpected error: %v", err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(dir, "sub", "build.gradle"))
+	if !strings.Contains(string(data), `version = "1.2.0"`) {
+		t.Errorf("expected version 1.2.0, got: %s", data)
+	}
+}
+
+func TestRunGradleReadVersionFails(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// build.gradle with no version assignment
+	os.WriteFile(filepath.Join(dir, "build.gradle"), []byte(`group = "com.example"`), 0644)
+	commitAll(t, repo, dir, "chore: init")
+
+	os.WriteFile(filepath.Join(dir, ".releaser.yml"), []byte("gradle:\n  build_file: \"build.gradle\"\n"), 0644)
+
+	addFile(t, dir, "x.go", "// fix")
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: something", &gogit.CommitOptions{Author: testSig()})
+
+	if err := execCmd(t, "--branch", "release/1.2", "--repo", dir); err == nil {
+		t.Fatal("expected error when build.gradle has no version assignment")
+	}
+}
+
+func TestRunGradleWriteVersionFails(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeGradleFile(t, dir, "0.0.0")
+	commitAll(t, repo, dir, "chore: init")
+
+	os.WriteFile(filepath.Join(dir, ".releaser.yml"), []byte("gradle:\n  build_file: \"build.gradle\"\n"), 0644)
+
+	addFile(t, dir, "x.go", "// fix")
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: something", &gogit.CommitOptions{Author: testSig()})
+
+	os.Chmod(filepath.Join(dir, "build.gradle"), 0444)
+	defer os.Chmod(filepath.Join(dir, "build.gradle"), 0644)
+
+	if err := execCmd(t, "--branch", "release/1.2", "--repo", dir); err == nil {
+		t.Fatal("expected error when build.gradle is read-only")
 	}
 }

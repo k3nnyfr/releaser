@@ -19,9 +19,47 @@ git:
   # author_name: ""
   # author_email: ""
 
-maven:
-  # Path to pom.xml, relative to the repository root.
+  # Limit which commit types trigger a release (default: fix, feat, breaking).
+  # releasable_types:
+  #   - fix
+  #   - feat
+  #   - breaking
+
+  # Configure which version component each commit type bumps.
+  # Valid values: "patch" (default) or "minor".
+  # bump_rules:
+  #   breaking: "minor"
+  #   feat: "patch"
+  #   fix: "patch"
+
+# maven:
+  # Single pom.xml path, relative to the repository root.
   # pom_path: "pom.xml"
+
+  # Multiple pom.xml paths for multi-module projects (overrides pom_path).
+  # pom_paths:
+  #   - "pom.xml"
+  #   - "module-a/pom.xml"
+
+# node:
+  # Single package.json path (node processing is opt-in — no default).
+  # package_json: "package.json"
+
+  # Multiple package.json paths for monorepos (overrides package_json).
+  # package_jsons:
+  #   - "packages/frontend/package.json"
+  #   - "packages/backend/package.json"
+
+# gradle:
+  # Single build.gradle or build.gradle.kts path (opt-in — no default).
+  # Both Groovy DSL (single-quoted) and Kotlin DSL (double-quoted) are supported.
+  # build_file: "build.gradle"
+
+  # Multiple build files for multi-module projects (overrides build_file).
+  # build_files:
+  #   - "build.gradle"
+  #   - "module-a/build.gradle"
+  #   - "module-b/build.gradle"
 
 gitlab:
   # GitLab instance URL. Falls back to the CI_SERVER_URL environment variable.

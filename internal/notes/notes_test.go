@@ -69,25 +69,6 @@ func TestGenerateEmpty(t *testing.T) {
 	}
 }
 
-func TestExtractSubject(t *testing.T) {
-	cases := []struct {
-		header string
-		want   string
-	}{
-		{"feat: add login", "add login"},
-		{"feat(auth): add OAuth2", "add OAuth2"},
-		{"feat!: remove API", "remove API"},
-		{"FIX:typo", "typo"},
-		{"plain message", "plain message"},
-	}
-	for _, c := range cases {
-		got := extractSubject(c.header)
-		if got != c.want {
-			t.Errorf("extractSubject(%q) = %q, want %q", c.header, got, c.want)
-		}
-	}
-}
-
 // FuzzGenerate verifies that Generate never panics on arbitrary inputs and
 // always includes the tag name in the output.
 func FuzzGenerate(f *testing.F) {

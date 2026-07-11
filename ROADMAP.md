@@ -55,22 +55,35 @@
 - [x] Gitea release workflow (5-platform cross-compilation, release asset upload)
 - [x] 96% test coverage with real in-memory git repos and fuzz tests for all parsers
 
-## v0.5 — Changelog
+## v0.5 — Changelog ✅
 
-- [ ] `CHANGELOG.md` generation / append (grouped by commit type)
-- [ ] `--changelog-file` flag
+- [x] `CHANGELOG.md` generation / append (grouped by commit type: Breaking Changes / Added / Fixed)
+- [x] `--changelog-file` flag to use a custom filename
+- [x] `--init` flag to scaffold a default `.releaser.yml`
+- [x] Push falls back to system `git` CLI when no token is set (uses credential helpers, SSH, netrc)
 
 ## v1.0 — Production ready
 
 - [x] ~~Integration tests against a real Git repo (with fixture commits and tags)~~ — ✓ shipped v0.4.0 (96% coverage, real in-memory repos)
 - [x] ~~Cross-compilation in CI (linux/amd64, linux/arm64, darwin/amd64)~~ — ✓ shipped v0.4.0 (Gitea release workflow, + darwin/arm64 + windows/amd64)
-- [ ] Documentation site
+- [x] ~~`--verbose` flag~~ — ✓ shipped v1.2.0 (shows config sources, commit analysis, version decision)
+- [x] ~~Colored, structured CLI output~~ — ✓ shipped v1.2.0 (`·` / `✓` / `!` symbols, `▸` section headers in verbose, TTY-aware ANSI colors)
+- [x] ~~Name and version header on every run~~ — ✓ shipped v1.2.0
+- [x] ~~Default tag prefix changed to empty~~ — ✓ shipped v1.2.0 (bare `1.2.3` tags by default; opt in to `v` prefix via config)
+- [x] ~~`release.env` dotenv artifact~~ — ✓ shipped v1.3.0 (`NEXT_VERSION=<tag>` written on every release for GitLab CI downstream jobs)
+- [x] ~~GitHub release support~~ — ✓ shipped v1.4.0 (`internal/ghclient`, `GITHUB_TOKEN` env, `github.token`/`github.repo` config; GitHub takes precedence over GitLab)
+- [x] ~~SSH agent push~~ — ✓ shipped v1.4.0 (go-git `gitssh.NewSSHAgentAuth` for `git@`/`ssh://` remotes)
+- [x] ~~Configurable bump rules~~ — ✓ shipped v1.4.0 (`git.releasable_types` config; filter which commit types trigger a release)
+- [x] ~~Documentation site~~ — ✓ shipped v1.5.1 (Hugo + Geekdoc; installation, CLI reference, configuration, CI integration pages; deployed via Gitea CI to `gh-pages`)
+
+## v1.5 — Multi-module, Node.js, configurable bump rules ✅
+
+- [x] Multi-module Maven support (`maven.pom_paths: [...]` updates multiple `pom.xml` files in one release)
+- [x] `package.json` version bump for Node.js projects (`node.package_json` / `node.package_jsons`)
+- [x] Configurable bump rules per commit type (`git.bump_rules.breaking/feat/fix: "minor" | "patch"`)
+- [x] 100% per-package statement coverage across all 12 packages
 
 ## Future / backlog
 
-- GitHub release support (parity with GitLab)
-- Multi-module Maven support (multiple `pom.xml` paths)
-- Gradle support (`build.gradle` / `build.gradle.kts`)
-- `package.json` version bump support (Node.js projects)
+- ~~Gradle support (`build.gradle` / `build.gradle.kts`)~~ — ✓ shipped v1.6.0 (`internal/gradle`; Groovy + Kotlin DSL; multi-module via `gradle.build_files`; `--gradle` flag)
 - Slack / Teams notification on release
-- Configurable bump rules (e.g. treat `feat:` as minor on `main` branch)

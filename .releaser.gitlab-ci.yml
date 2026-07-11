@@ -45,5 +45,9 @@
         --branch "$CI_COMMIT_BRANCH"
         $RELEASER_EXTRA_ARGS
 
+  artifacts:
+    reports:
+      dotenv: release.env   # exposes NEXT_VERSION to downstream jobs
+
   environment:
     name: release/$CI_COMMIT_BRANCH
