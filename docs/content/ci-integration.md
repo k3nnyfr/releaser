@@ -83,7 +83,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          curl -sSL https://git.k3nny.fr/releaser/releases/latest/download/releaser-linux-amd64 \
+          curl -sSL https://git.k3nny.fr/k3nny/releaser/releases/latest/download/releaser-linux-amd64 \
             -o /usr/local/bin/releaser
           chmod +x /usr/local/bin/releaser
           releaser

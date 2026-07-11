@@ -73,4 +73,4 @@ weight: 50
 
 ## v1.0 and earlier
 
-See the [full CHANGELOG](https://git.k3nny.fr/releaser/src/branch/main/CHANGELOG.md) in the repository.
+See the [full CHANGELOG](https://git.k3nny.fr/k3nny/releaser/src/branch/main/CHANGELOG.md) in the repository.

@@ -5,11 +5,11 @@ weight: 10
 
 ## Pre-built binaries
 
-Download the latest release for your platform from the [Releases page](https://git.k3nny.fr/releaser/releases).
+Download the latest release for your platform from the [Releases page](https://git.k3nny.fr/k3nny/releaser/releases).
 
 ```bash
 # Linux (amd64)
-curl -sSL https://git.k3nny.fr/releaser/releases/download/v1.5.0/releaser-v1.5.0-linux-amd64 \
+curl -sSL https://git.k3nny.fr/k3nny/releaser/releases/download/v1.5.0/releaser-v1.5.0-linux-amd64 \
   -o /usr/local/bin/releaser
 chmod +x /usr/local/bin/releaser
 ```
@@ -19,13 +19,13 @@ Available platforms: `linux-amd64`, `linux-arm64`, `darwin-amd64`, `darwin-arm64
 ## Docker
 
 ```bash
-docker pull git.k3nny.fr/releaser/releaser:latest
+docker pull git.k3nny.fr/k3nny/releaser/releaser:latest
 
 # Run in the current repository
 docker run --rm \
   -v "$PWD:/repo" \
   -e GITLAB_TOKEN="$GITLAB_TOKEN" \
-  git.k3nny.fr/releaser/releaser:latest
+  git.k3nny.fr/k3nny/releaser/releaser:latest
 ```
 
 ## Build from source
@@ -33,7 +33,7 @@ docker run --rm \
 Requires Go 1.21+.
 
 ```bash
-git clone https://git.k3nny.fr/releaser/releaser.git
+git clone https://git.k3nny.fr/k3nny/releaser/releaser.git
 cd releaser
 go build -o /usr/local/bin/releaser ./cmd
 ```

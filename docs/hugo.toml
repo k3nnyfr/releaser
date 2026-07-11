@@ -14,7 +14,7 @@ pygmentsCodeFences = true
 
 [params]
   geekdocLogo = "images/releaser-logo-1024.png"
-  geekdocRepo = "https://git.k3nny.fr/releaser"
+  geekdocRepo = "https://git.k3nny.fr/k3nny/releaser"
   geekdocEditPath = "edit/main/docs/content"
   geekdocSearch = true
   geekdocMenuBundle = true

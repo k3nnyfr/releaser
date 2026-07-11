@@ -6,7 +6,7 @@
 
 A CI-friendly release automation tool for GitFlow workflows using Conventional Commits.
 
-**[Documentation](https://releaser.k3nny.fr)**
+**[Documentation](https://releaser.k3nny.fr)** · **[Repository](https://git.k3nny.fr/k3nny/releaser)**
 
 ## Problem
 
