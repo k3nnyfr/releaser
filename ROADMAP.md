@@ -76,10 +76,15 @@
 - [x] ~~Configurable bump rules~~ — ✓ shipped v1.4.0 (`git.releasable_types` config; filter which commit types trigger a release)
 - [ ] Documentation site
 
+## v1.5 — Multi-module, Node.js, configurable bump rules ✅
+
+- [x] Multi-module Maven support (`maven.pom_paths: [...]` updates multiple `pom.xml` files in one release)
+- [x] `package.json` version bump for Node.js projects (`node.package_json` / `node.package_jsons`)
+- [x] Configurable bump rules per commit type (`git.bump_rules.breaking/feat/fix: "minor" | "patch"`)
+- [x] 100% per-package statement coverage across all 12 packages
+
 ## Future / backlog
 
-- Multi-module Maven support (multiple `pom.xml` paths)
 - Gradle support (`build.gradle` / `build.gradle.kts`)
-- `package.json` version bump support (Node.js projects)
 - Slack / Teams notification on release
-- Configurable bump rules (e.g. treat `feat:` as minor on `main` branch)
+- Documentation site

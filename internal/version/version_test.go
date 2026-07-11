@@ -30,7 +30,7 @@ func TestNext(t *testing.T) {
 			wantOk: true,
 		},
 		{
-			desc:         "breaking change still bumps patch on release branch",
+			desc:         "breaking change still bumps patch by default",
 			major:        2, minor: 0, currentPatch: 1,
 			types:  []commits.Type{commits.TypeBreaking},
 			want:   "2.0.2",
@@ -61,7 +61,7 @@ func TestNext(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.desc, func(t *testing.T) {
-			got, ok := Next(c.major, c.minor, c.currentPatch, c.types, nil)
+			got, ok := Next(c.major, c.minor, c.currentPatch, c.types, nil, nil)
 			if ok != c.wantOk {
 				t.Errorf("ok=%v, want %v", ok, c.wantOk)
 			}
@@ -69,5 +69,75 @@ func TestNext(t *testing.T) {
 				t.Errorf("got %q, want %q", got, c.want)
 			}
 		})
+	}
+}
+
+func TestNextMinorBump(t *testing.T) {
+	rules := map[commits.Type]BumpLevel{
+		commits.TypeBreaking: BumpMinor,
+	}
+
+	cases := []struct {
+		desc         string
+		major, minor int
+		currentPatch int
+		types        []commits.Type
+		want         string
+	}{
+		{
+			desc:         "breaking → minor bump",
+			major:        1, minor: 2, currentPatch: 3,
+			types: []commits.Type{commits.TypeBreaking},
+			want:  "1.3.0",
+		},
+		{
+			desc:         "feat (patch rule) with breaking (minor rule) → minor wins",
+			major:        1, minor: 2, currentPatch: 3,
+			types: []commits.Type{commits.TypeFeat, commits.TypeBreaking},
+			want:  "1.3.0",
+		},
+		{
+			desc:         "fix only — no minor rule → patch bump",
+			major:        1, minor: 2, currentPatch: 3,
+			types: []commits.Type{commits.TypeFix},
+			want:  "1.2.4",
+		},
+		{
+			desc:         "first release with minor bump",
+			major:        2, minor: 0, currentPatch: -1,
+			types: []commits.Type{commits.TypeBreaking},
+			want:  "2.1.0",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.desc, func(t *testing.T) {
+			got, ok := Next(c.major, c.minor, c.currentPatch, c.types, nil, rules)
+			if !ok {
+				t.Fatal("expected ok=true")
+			}
+			if got != c.want {
+				t.Errorf("got %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestNextAllMinorRules(t *testing.T) {
+	rules := map[commits.Type]BumpLevel{
+		commits.TypeBreaking: BumpMinor,
+		commits.TypeFeat:     BumpMinor,
+		commits.TypeFix:      BumpMinor,
+	}
+	got, ok := Next(1, 4, 2, []commits.Type{commits.TypeFix}, nil, rules)
+	if !ok || got != "1.5.0" {
+		t.Errorf("got %q ok=%v, want 1.5.0 true", got, ok)
+	}
+}
+
+func TestNextNilBumpRulesDefaultsToPatch(t *testing.T) {
+	got, ok := Next(1, 2, 5, []commits.Type{commits.TypeBreaking}, nil, nil)
+	if !ok || got != "1.2.6" {
+		t.Errorf("got %q ok=%v, want 1.2.6 true", got, ok)
 	}
 }

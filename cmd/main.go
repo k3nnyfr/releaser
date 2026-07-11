@@ -19,6 +19,7 @@ import (
 	"git.k3nny.fr/releaser/internal/gitutil"
 	"git.k3nny.fr/releaser/internal/glclient"
 	"git.k3nny.fr/releaser/internal/maven"
+	"git.k3nny.fr/releaser/internal/node"
 	"git.k3nny.fr/releaser/internal/notes"
 	semver "git.k3nny.fr/releaser/internal/version"
 )
@@ -50,9 +51,32 @@ git:
   #   - feat
   #   - breaking
 
+  # Configure which version component each commit type bumps.
+  # Valid values: "patch" (default) or "minor".
+  # bump_rules:
+  #   breaking: "minor"   # bump minor version instead of patch on breaking changes
+  #   feat: "patch"
+  #   fix: "patch"
+
 maven:
-  # Path to pom.xml, relative to the repository root.
+  # Single pom.xml path, relative to the repository root.
   # pom_path: "pom.xml"
+
+  # Multiple pom.xml paths for multi-module projects (overrides pom_path).
+  # pom_paths:
+  #   - "pom.xml"
+  #   - "module-a/pom.xml"
+  #   - "module-b/pom.xml"
+
+node:
+  # Single package.json path (node processing is opt-in — no default).
+  # package_json: "package.json"
+
+  # Multiple package.json paths for monorepos (overrides package_json).
+  # package_jsons:
+  #   - "package.json"
+  #   - "packages/frontend/package.json"
+  #   - "packages/backend/package.json"
 
 gitlab:
   # GitLab instance URL. Falls back to the CI_SERVER_URL environment variable.
@@ -83,6 +107,14 @@ var (
 
 // exitFn is a variable so tests can intercept os.Exit calls.
 var exitFn = os.Exit
+
+// injectable function variables for testing error paths.
+var (
+	absPath        = filepath.Abs
+	gitAllCommits  = gitutil.AllCommits
+	gitCommitsSince = gitutil.CommitsSince
+	gitCommitFiles = gitutil.CommitFiles
+)
 
 // releasePublisher is implemented by both glclient and ghclient.
 type releasePublisher interface {
@@ -215,7 +247,32 @@ func printVerboseConfig(cfg config.Config, src config.Sources) {
 			}
 			return strings.Join(cfg.Git.ReleasableTypes, ", ")
 		}()},
-		{"maven.pom_path", cfg.Maven.PomPath},
+		{"git.bump_rules.breaking", func() string {
+			if cfg.Git.BumpRules.Breaking == "" {
+				return "patch"
+			}
+			return cfg.Git.BumpRules.Breaking
+		}()},
+		{"git.bump_rules.feat", func() string {
+			if cfg.Git.BumpRules.Feat == "" {
+				return "patch"
+			}
+			return cfg.Git.BumpRules.Feat
+		}()},
+		{"git.bump_rules.fix", func() string {
+			if cfg.Git.BumpRules.Fix == "" {
+				return "patch"
+			}
+			return cfg.Git.BumpRules.Fix
+		}()},
+		{"maven.pom_paths", strings.Join(cfg.Maven.EffectivePomPaths(), ", ")},
+		{"node.paths", func() string {
+			paths := cfg.Node.EffectivePaths()
+			if len(paths) == 0 {
+				return "(not configured)"
+			}
+			return strings.Join(paths, ", ")
+		}()},
 		{"gitlab.url", cfg.GitLab.URL},
 		{"gitlab.token", func() string {
 			if cfg.GitLab.Token != "" {
@@ -257,11 +314,25 @@ func initConfig(absRepo string) error {
 	return nil
 }
 
+func parseBumpRules(rules config.BumpRulesConfig) map[commits.Type]semver.BumpLevel {
+	m := map[commits.Type]semver.BumpLevel{}
+	if rules.Breaking == "minor" {
+		m[commits.TypeBreaking] = semver.BumpMinor
+	}
+	if rules.Feat == "minor" {
+		m[commits.TypeFeat] = semver.BumpMinor
+	}
+	if rules.Fix == "minor" {
+		m[commits.TypeFix] = semver.BumpMinor
+	}
+	return m
+}
+
 func run(o options) error {
 	logHeader(version)
 
 	// --- Config ---
-	absRepo, err := filepath.Abs(o.repoPath)
+	absRepo, err := absPath(o.repoPath)
 	if err != nil {
 		return fmt.Errorf("resolve repo path: %w", err)
 	}
@@ -286,7 +357,8 @@ func run(o options) error {
 	}
 	if o.pomOverride != "" {
 		cfg.Maven.PomPath = o.pomOverride
-		src["maven.pom_path"] = "flag: --pom"
+		cfg.Maven.PomPaths = nil
+		src["maven.pom_paths"] = "flag: --pom"
 	}
 	if o.patternSet {
 		cfg.Git.BranchPattern = o.patternFlag
@@ -345,9 +417,9 @@ func run(o options) error {
 	// --- Commit range ---
 	var messages []string
 	if lastTag == "" {
-		messages, err = gitutil.AllCommits(repo)
+		messages, err = gitAllCommits(repo)
 	} else {
-		messages, err = gitutil.CommitsSince(repo, lastTag)
+		messages, err = gitCommitsSince(repo, lastTag)
 	}
 	if err != nil {
 		return fmt.Errorf("read commits: %w", err)
@@ -398,7 +470,7 @@ func run(o options) error {
 	}
 
 	releasable := commits.ReleasableSet(cfg.Git.ReleasableTypes)
-	nextVersion, ok := semver.Next(info.Major, info.Minor, currentPatch, types, releasable)
+	nextVersion, ok := semver.Next(info.Major, info.Minor, currentPatch, types, releasable, parseBumpRules(cfg.Git.BumpRules))
 	if !ok {
 		logWarn("no releasable commits found")
 		return errNothingToRelease
@@ -440,25 +512,44 @@ func run(o options) error {
 	if !o.tagOnly {
 		var filesToCommit []string
 
-		// pom.xml
-		pomPath := filepath.Join(absRepo, cfg.Maven.PomPath)
-		_, statErr := os.Stat(pomPath)
-		hasPom := !errors.Is(statErr, os.ErrNotExist)
-		if statErr != nil && hasPom {
-			return fmt.Errorf("check pom path: %w", statErr)
+		// pom.xml (supports multi-module via pom_paths)
+		anyPom := false
+		for _, relPomPath := range cfg.Maven.EffectivePomPaths() {
+			pomPath := filepath.Join(absRepo, relPomPath)
+			_, statErr := os.Stat(pomPath)
+			hasPom := !errors.Is(statErr, os.ErrNotExist)
+			if statErr != nil && hasPom {
+				return fmt.Errorf("check pom path: %w", statErr)
+			}
+			if hasPom {
+				anyPom = true
+				currentPomVersion, err := maven.ReadVersion(pomPath)
+				if err != nil {
+					return fmt.Errorf("read pom version: %w", err)
+				}
+				if err := maven.WriteVersion(pomPath, currentPomVersion, nextVersion); err != nil {
+					return fmt.Errorf("update pom version: %w", err)
+				}
+				logDone("%s: %s → %s", relPomPath, currentPomVersion, nextVersion)
+				filesToCommit = append(filesToCommit, relPomPath)
+			}
 		}
-		if hasPom {
-			currentPomVersion, err := maven.ReadVersion(pomPath)
-			if err != nil {
-				return fmt.Errorf("read pom version: %w", err)
-			}
-			if err := maven.WriteVersion(pomPath, currentPomVersion, nextVersion); err != nil {
-				return fmt.Errorf("update pom version: %w", err)
-			}
-			logDone("pom.xml: %s → %s", currentPomVersion, nextVersion)
-			filesToCommit = append(filesToCommit, cfg.Maven.PomPath)
-		} else {
+		if !anyPom {
 			logWarn("no pom.xml — skipping version bump")
+		}
+
+		// package.json (opt-in via node.package_json / node.package_jsons)
+		for _, relPkgPath := range cfg.Node.EffectivePaths() {
+			pkgPath := filepath.Join(absRepo, relPkgPath)
+			currentNodeVersion, err := node.ReadVersion(pkgPath)
+			if err != nil {
+				return fmt.Errorf("read package.json version: %w", err)
+			}
+			if err := node.WriteVersion(pkgPath, currentNodeVersion, nextVersion); err != nil {
+				return fmt.Errorf("update package.json version: %w", err)
+			}
+			logDone("%s: %s → %s", relPkgPath, currentNodeVersion, nextVersion)
+			filesToCommit = append(filesToCommit, relPkgPath)
 		}
 
 		// CHANGELOG.md
@@ -483,7 +574,7 @@ func run(o options) error {
 			authorEmail = cfg.Git.AuthorEmail
 		}
 		commitMsg := strings.ReplaceAll(cfg.Git.CommitMessage, "{version}", nextTag)
-		if _, err := gitutil.CommitFiles(repo, filesToCommit, commitMsg, authorName, authorEmail); err != nil {
+		if _, err := gitCommitFiles(repo, filesToCommit, commitMsg, authorName, authorEmail); err != nil {
 			return fmt.Errorf("commit: %w", err)
 		}
 		logDone("committed: %s", commitMsg)

@@ -83,6 +83,14 @@ func TestReleasableSet(t *testing.T) {
 	if !only[TypeFix] || only[TypeFeat] || only[TypeBreaking] {
 		t.Errorf("fix-only set: %v", only)
 	}
+	onlyFeat := ReleasableSet([]string{"feat"})
+	if onlyFeat[TypeFix] || !onlyFeat[TypeFeat] || onlyFeat[TypeBreaking] {
+		t.Errorf("feat-only set: %v", onlyFeat)
+	}
+	onlyBreaking := ReleasableSet([]string{"breaking"})
+	if onlyBreaking[TypeFix] || onlyBreaking[TypeFeat] || !onlyBreaking[TypeBreaking] {
+		t.Errorf("breaking-only set: %v", onlyBreaking)
+	}
 }
 
 func TestTypeString(t *testing.T) {

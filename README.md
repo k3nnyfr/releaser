@@ -1,6 +1,6 @@
 # releaser
 
-![release](https://img.shields.io/badge/release-v1.4.0-blue.svg)
+![release](https://img.shields.io/badge/release-v1.5.0-blue.svg)
 
 A CI-friendly release automation tool for GitFlow workflows using Conventional Commits.
 
@@ -27,13 +27,15 @@ release/1.2 branch
 
 ## Version bump rules
 
-| Commit type      | Bump    | Notes                                      |
-|------------------|---------|--------------------------------------------|
-| `fix:`           | patch   |                                            |
-| `feat:`          | patch   | minor is pinned to branch                  |
-| `feat!:` / `BREAKING CHANGE` | patch | same — branch defines the minor boundary |
-| `chore:`, `docs:`, etc. | none |                                        |
-| unparseable msg  | none    | non-strict mode: silently ignored          |
+By default, all releasable commits bump the **patch** component (minor is pinned to the branch). You can override this per commit type via `git.bump_rules` in `.releaser.yml`:
+
+| Commit type      | Default | Configurable via `bump_rules`                  |
+|------------------|---------|------------------------------------------------|
+| `fix:`           | patch   | `fix: "minor"` to bump minor instead           |
+| `feat:`          | patch   | `feat: "minor"` to bump minor instead          |
+| `feat!:` / `BREAKING CHANGE` | patch | `breaking: "minor"` to bump minor  |
+| `chore:`, `docs:`, etc. | none   | —                                       |
+| unparseable msg  | none    | non-strict mode: silently ignored              |
 
 ## Usage
 
@@ -95,9 +97,23 @@ git:
     - fix
     - feat
     - breaking
+  bump_rules:                                        # which version component each type bumps
+    breaking: "patch"                                # "minor" to bump minor on breaking changes
+    feat: "patch"
+    fix: "patch"
 
 maven:
-  pom_path: "pom.xml"                                # relative to repo root
+  pom_path: "pom.xml"                                # single pom.xml, relative to repo root
+  # pom_paths:                                       # multi-module: list overrides pom_path
+  #   - "pom.xml"
+  #   - "module-a/pom.xml"
+  #   - "module-b/pom.xml"
+
+node:                                                # opt-in — no default; omit to skip
+  # package_json: "package.json"                     # single path
+  # package_jsons:                                   # monorepo: list overrides package_json
+  #   - "packages/frontend/package.json"
+  #   - "packages/backend/package.json"
 
 gitlab:
   url: "https://gitlab.example.com"                  # or env CI_SERVER_URL

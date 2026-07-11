@@ -85,14 +85,9 @@ func LatestTag(repo *gogit.Repository, info branch.Info) (string, int, error) {
 			return nil
 		}
 
-		commitHash, err := resolveTagToCommit(repo, ref)
+		tagCommit, err := resolveTagToCommitObj(repo, ref)
 		if err != nil {
 			return nil // silently skip malformed tags
-		}
-
-		tagCommit, err := repo.CommitObject(commitHash)
-		if err != nil {
-			return nil
 		}
 
 		if tagCommit.Hash == headCommit.Hash {
@@ -101,7 +96,10 @@ func LatestTag(repo *gogit.Repository, info branch.Info) (string, int, error) {
 		}
 
 		anc, err := tagCommit.IsAncestor(headCommit)
-		if err != nil || !anc {
+		if err != nil {
+			return err
+		}
+		if !anc {
 			return nil
 		}
 
@@ -241,6 +239,12 @@ func CreateTag(repo *gogit.Repository, tagName string) error {
 	return nil
 }
 
+// sshPush is the function used for SSH agent push; replaced in tests to avoid requiring a live agent.
+var sshPush = pushWithSSHAgent
+
+// newSSHAgentAuth creates an SSH agent auth method; replaced in tests.
+var newSSHAgentAuth = gitssh.NewSSHAgentAuth
+
 // Push pushes the given branch and tag to the "origin" remote.
 // When token is non-empty, go-git is used with HTTPS basic auth (oauth2/token) — suitable for CI.
 // When token is empty and the remote URL is SSH, go-git SSH agent auth is attempted first.
@@ -253,7 +257,7 @@ func Push(repo *gogit.Repository, branchName, tagName, token string) error {
 	if remote, err := repo.Remote("origin"); err == nil {
 		urls := remote.Config().URLs
 		if len(urls) > 0 && isSSHURL(urls[0]) {
-			if err := pushWithSSHAgent(repo, branchName, tagName); err == nil {
+			if err := sshPush(repo, branchName, tagName); err == nil {
 				return nil
 			}
 		}
@@ -266,7 +270,7 @@ func isSSHURL(u string) bool {
 }
 
 func pushWithSSHAgent(repo *gogit.Repository, branchName, tagName string) error {
-	auth, err := gitssh.NewSSHAgentAuth("git")
+	auth, err := newSSHAgentAuth("git")
 	if err != nil {
 		return err
 	}
@@ -331,22 +335,31 @@ func pushWithCLI(repo *gogit.Repository, branchName, tagName string) error {
 	return nil
 }
 
-// resolveTagToCommit follows tag objects until it reaches a commit.
+// resolveTagToCommitObj follows tag objects until it reaches a commit and returns it.
 // Handles both lightweight tags (ref → commit) and annotated tags (ref → tag object → … → commit).
-func resolveTagToCommit(repo *gogit.Repository, ref *plumbing.Reference) (plumbing.Hash, error) {
+func resolveTagToCommitObj(repo *gogit.Repository, ref *plumbing.Reference) (*object.Commit, error) {
 	hash := ref.Hash()
 	for {
 		obj, err := repo.Object(plumbing.AnyObject, hash)
 		if err != nil {
-			return plumbing.ZeroHash, err
+			return nil, err
 		}
 		switch o := obj.(type) {
 		case *object.Commit:
-			return o.Hash, nil
+			return o, nil
 		case *object.Tag:
 			hash = o.Target
 		default:
-			return plumbing.ZeroHash, fmt.Errorf("unexpected object type %s at %s", obj.Type(), hash)
+			return nil, fmt.Errorf("unexpected object type %s at %s", obj.Type(), hash)
 		}
 	}
+}
+
+// resolveTagToCommit follows tag objects until it reaches a commit and returns its hash.
+func resolveTagToCommit(repo *gogit.Repository, ref *plumbing.Reference) (plumbing.Hash, error) {
+	c, err := resolveTagToCommitObj(repo, ref)
+	if err != nil {
+		return plumbing.ZeroHash, err
+	}
+	return c.Hash, nil
 }

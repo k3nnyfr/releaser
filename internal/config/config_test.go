@@ -123,6 +123,175 @@ func TestApplyEnvProjectPathFallback(t *testing.T) {
 	}
 }
 
+func TestLoadWithSourcesFullConfig(t *testing.T) {
+	dir := t.TempDir()
+	content := `
+git:
+  tag_prefix: "v"
+  branch_pattern: "^release/(\\d+)$"
+  commit_message: "release {version}"
+  author_name: "Bot"
+  author_email: "bot@example.com"
+  releasable_types: ["fix", "feat"]
+  bump_rules:
+    breaking: "minor"
+    feat: "patch"
+    fix: "patch"
+maven:
+  pom_path: "sub/pom.xml"
+  pom_paths:
+    - "a/pom.xml"
+    - "b/pom.xml"
+node:
+  package_json: "frontend/package.json"
+  package_jsons:
+    - "pkg-a/package.json"
+    - "pkg-b/package.json"
+gitlab:
+  url: "https://gitlab.example.com"
+  token: "gitlab-token"
+  project: "42"
+github:
+  token: "github-token"
+  repo: "owner/repo"
+`
+	if err := os.WriteFile(filepath.Join(dir, filename), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, src, err := LoadWithSources(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantConfigFile := []string{
+		"git.tag_prefix", "git.branch_pattern", "git.commit_message",
+		"git.author_name", "git.author_email", "git.releasable_types",
+		"git.bump_rules.breaking", "git.bump_rules.feat", "git.bump_rules.fix",
+		"maven.pom_path", "maven.pom_paths",
+		"node.package_json", "node.package_jsons",
+		"gitlab.url", "gitlab.token", "gitlab.project",
+		"github.token", "github.repo",
+	}
+	for _, key := range wantConfigFile {
+		if got := src[key]; got != "config file" {
+			t.Errorf("src[%q] = %q, want %q", key, got, "config file")
+		}
+	}
+}
+
+func TestEffectivePomPaths(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  MavenConfig
+		want []string
+	}{
+		{"default", MavenConfig{PomPath: "pom.xml"}, []string{"pom.xml"}},
+		{"single override", MavenConfig{PomPath: "sub/pom.xml"}, []string{"sub/pom.xml"}},
+		{"multi overrides single", MavenConfig{PomPath: "pom.xml", PomPaths: []string{"a/pom.xml", "b/pom.xml"}}, []string{"a/pom.xml", "b/pom.xml"}},
+		{"empty falls back to default", MavenConfig{}, []string{"pom.xml"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := c.cfg.EffectivePomPaths()
+			if len(got) != len(c.want) {
+				t.Fatalf("got %v, want %v", got, c.want)
+			}
+			for i := range got {
+				if got[i] != c.want[i] {
+					t.Errorf("[%d] got %q, want %q", i, got[i], c.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestNodeEffectivePaths(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  NodeConfig
+		want []string
+	}{
+		{"empty — opt-in, skip by default", NodeConfig{}, nil},
+		{"single", NodeConfig{PackageJSON: "package.json"}, []string{"package.json"}},
+		{"multi overrides single", NodeConfig{PackageJSON: "package.json", PackageJSONs: []string{"a/package.json", "b/package.json"}}, []string{"a/package.json", "b/package.json"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := c.cfg.EffectivePaths()
+			if len(got) != len(c.want) {
+				t.Fatalf("got %v, want %v", got, c.want)
+			}
+			for i := range got {
+				if got[i] != c.want[i] {
+					t.Errorf("[%d] got %q, want %q", i, got[i], c.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestApplyEnvWithSourcesCIProjectID(t *testing.T) {
+	t.Setenv("CI_PROJECT_ID", "123")
+	t.Setenv("CI_PROJECT_PATH", "")
+
+	cfg := defaults()
+	src := defaultSources()
+	cfg.ApplyEnvWithSources(src)
+
+	if src["gitlab.project"] != "env: CI_PROJECT_ID" {
+		t.Errorf("src[gitlab.project] = %q, want %q", src["gitlab.project"], "env: CI_PROJECT_ID")
+	}
+}
+
+func TestApplyEnvWithSourcesGitHubToken(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "ghtoken")
+
+	cfg := defaults()
+	src := defaultSources()
+	cfg.ApplyEnvWithSources(src)
+
+	if src["github.token"] != "env: GITHUB_TOKEN" {
+		t.Errorf("src[github.token] = %q, want %q", src["github.token"], "env: GITHUB_TOKEN")
+	}
+}
+
+func TestApplyEnvWithSourcesCIProjectPath(t *testing.T) {
+	t.Setenv("CI_PROJECT_ID", "")
+	t.Setenv("CI_PROJECT_PATH", "group/project")
+
+	cfg := defaults()
+	src := defaultSources()
+	cfg.ApplyEnvWithSources(src)
+
+	if src["gitlab.project"] != "env: CI_PROJECT_PATH" {
+		t.Errorf("src[gitlab.project] = %q, want %q", src["gitlab.project"], "env: CI_PROJECT_PATH")
+	}
+}
+
+func TestApplyEnvWithSourcesGitLabToken(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "mytoken")
+
+	cfg := defaults()
+	src := defaultSources()
+	cfg.ApplyEnvWithSources(src)
+
+	if src["gitlab.token"] != "env: GITLAB_TOKEN" {
+		t.Errorf("src[gitlab.token] = %q, want %q", src["gitlab.token"], "env: GITLAB_TOKEN")
+	}
+}
+
+func TestApplyEnvWithSourcesCIServerURL(t *testing.T) {
+	t.Setenv("CI_SERVER_URL", "https://gitlab.example.com")
+
+	cfg := defaults()
+	src := defaultSources()
+	cfg.ApplyEnvWithSources(src)
+
+	if src["gitlab.url"] != "env: CI_SERVER_URL" {
+		t.Errorf("src[gitlab.url] = %q, want %q", src["gitlab.url"], "env: CI_SERVER_URL")
+	}
+}
+
 func TestLoadPartialOverride(t *testing.T) {
 	dir := t.TempDir()
 	// Only override tag_prefix — commit_message should keep its default

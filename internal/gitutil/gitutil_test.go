@@ -1,6 +1,7 @@
 package gitutil
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	gitconfig "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 
 	"git.k3nny.fr/releaser/internal/branch"
 )
@@ -697,5 +699,410 @@ func TestPushWithBareRemote(t *testing.T) {
 	err = Push(repo, "master", "v1.2.0", "dummy-token")
 	if err != nil {
 		t.Fatalf("second Push returned unexpected error: %v", err)
+	}
+}
+
+// ── IsWorkingTreeClean: w.Status() error path ────────────────────────────────
+
+func TestIsWorkingTreeCleanCorruptIndex(t *testing.T) {
+	// Use a filesystem repo so we can corrupt the on-disk index.
+	repo, dir := newTestRepo(t)
+	addCommit(t, repo, dir, "chore: init", "initial")
+
+	// Overwrite .git/index with garbage so go-git fails to parse it.
+	indexPath := filepath.Join(dir, ".git", "index")
+	if err := os.WriteFile(indexPath, []byte("not a valid git index"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Reopen — fresh repository object with no cached index.
+	repo2, err := gogit.PlainOpen(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = IsWorkingTreeClean(repo2)
+	if err == nil {
+		t.Error("expected error when git index is corrupt")
+	}
+}
+
+// ── LatestTag: head commit object missing ────────────────────────────────────
+
+func TestLatestTagHeadCommitMissing(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	addCommit(t, repo, dir, "fix: c1", "v1")
+	addTag(t, repo, "v1.2.0")
+
+	// Detach HEAD to a fake hash that has no backing commit object.
+	fakeHash := plumbing.NewHash("deadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(plumbing.HEAD, fakeHash)); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := LatestTag(repo, branch.Info{Major: 1, Minor: 2, TagPrefix: "v"})
+	if err == nil {
+		t.Error("expected error when HEAD commit object is missing")
+	}
+}
+
+// ── LatestTag: Tags() iterator fails ────────────────────────────────────────
+
+func TestLatestTagTagsIterFails(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	addCommit(t, repo, dir, "fix: c1", "v1")
+
+	// Make .git/refs/tags/ unreadable so that go-git's walkReferencesTree
+	// returns EPERM when it tries to list the directory, triggering the
+	// Tags() error path.  Skip when running as root (chmod has no effect).
+	tagsDir := filepath.Join(dir, ".git", "refs", "tags")
+	if err := os.Chmod(tagsDir, 0000); err != nil {
+		t.Skipf("cannot chmod %s: %v", tagsDir, err)
+	}
+	t.Cleanup(func() { os.Chmod(tagsDir, 0755) })
+
+	// Reopen so the filesystem storer holds no cached state.
+	repo2, err := gogit.PlainOpen(dir)
+	if err != nil {
+		t.Skipf("PlainOpen failed (likely running as root): %v", err)
+	}
+
+	_, _, err = LatestTag(repo2, branch.Info{Major: 1, Minor: 2, TagPrefix: "v"})
+	if err == nil {
+		t.Error("expected error when refs/tags is unreadable")
+	}
+}
+
+// ── LatestTag: IsAncestor fails → ForEach propagates error ───────────────────
+
+func TestLatestTagIsAncestorFails(t *testing.T) {
+	// Topology: c0 (base) → c1 (sibling branch, tagged v1.2.0)
+	//                      → c2 (master HEAD — diverged from sibling)
+	// The tag is NOT an ancestor of HEAD. IsAncestor must walk master's history
+	// all the way back to c0; corrupting c0 makes that walk fail.
+	repo, dir := newTestRepo(t)
+	c0 := addCommit(t, repo, dir, "chore: base", "base")
+
+	w, _ := repo.Worktree()
+	if err := w.Checkout(&gogit.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName("sibling"),
+		Hash:   c0,
+		Create: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	addCommit(t, repo, dir, "feat: sibling work", "sibling")
+	addTag(t, repo, "v1.2.0") // tag on the sibling commit (not an ancestor of master)
+
+	if err := w.Checkout(&gogit.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName("master"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	addCommit(t, repo, dir, "fix: mainline", "mainline") // HEAD on master
+
+	// Corrupt c0 (the common base) so that IsAncestor's commit-graph walk
+	// fails when it tries to read c0 as a parent of the master HEAD commit.
+	hashStr := c0.String()
+	objPath := filepath.Join(dir, ".git", "objects", hashStr[:2], hashStr[2:])
+	if err := os.Chmod(objPath, 0644); err != nil {
+		t.Fatalf("chmod object: %v", err)
+	}
+	if err := os.WriteFile(objPath, []byte("corrupt"), 0444); err != nil {
+		t.Fatal(err)
+	}
+
+	repo2, err := gogit.PlainOpen(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The ForEach callback propagates the IsAncestor error, so LatestTag
+	// must return a non-nil error (covers the refs.ForEach error path).
+	_, _, err = LatestTag(repo2, branch.Info{Major: 1, Minor: 2, TagPrefix: "v"})
+	if err == nil {
+		t.Error("expected error when commit graph is corrupt during IsAncestor")
+	}
+}
+
+// ── CommitsSince: repo.Head() fails after tag resolve ────────────────────────
+
+func TestCommitsSinceHeadRemoved(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	addCommit(t, repo, dir, "fix: c1", "v1")
+	addTag(t, repo, "v1.2.0")
+
+	// Remove HEAD so repo.Head() returns ErrReferenceNotFound.
+	if err := repo.Storer.RemoveReference(plumbing.HEAD); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := CommitsSince(repo, "v1.2.0")
+	if err == nil {
+		t.Error("expected error when HEAD reference is missing")
+	}
+}
+
+// ── CommitsSince: repo.Log() fails ───────────────────────────────────────────
+
+func TestCommitsSinceFakeHead(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	addCommit(t, repo, dir, "fix: c1", "v1")
+	addTag(t, repo, "v1.2.0")
+	addCommit(t, repo, dir, "fix: c2", "v2")
+
+	// Point HEAD directly to a non-existent commit hash.
+	// repo.Head() succeeds (returns the hash) but repo.Log() fails eagerly.
+	fakeHash := plumbing.NewHash("cafebabecafebabecafebabecafebabecafebabe")
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(plumbing.HEAD, fakeHash)); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := CommitsSince(repo, "v1.2.0")
+	if err == nil {
+		t.Error("expected error when HEAD commit object is missing")
+	}
+}
+
+// ── AllCommits: repo.Log() fails ─────────────────────────────────────────────
+
+func TestAllCommitsFakeHead(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	addCommit(t, repo, dir, "fix: c1", "v1")
+
+	// Point HEAD to a non-existent commit hash so repo.Log() fails eagerly.
+	fakeHash := plumbing.NewHash("deadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(plumbing.HEAD, fakeHash)); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := AllCommits(repo)
+	if err == nil {
+		t.Error("expected error when HEAD commit object is missing")
+	}
+}
+
+// ── CommitFiles: w.Commit() fails ────────────────────────────────────────────
+
+func TestCommitFilesUnchanged(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	addCommit(t, repo, dir, "chore: init", "initial")
+
+	// test.txt already committed and unchanged — w.Add succeeds, w.Commit fails
+	// (go-git rejects empty commits when AllowEmptyCommits is false).
+	_, err := CommitFiles(repo, []string{"test.txt"}, "chore: empty", "Test", "t@t.com")
+	if err == nil {
+		t.Error("expected error when committing unchanged file (empty commit)")
+	}
+}
+
+// ── Push: SSH agent success / failure paths ──────────────────────────────────
+
+func TestPushSSHAgentSucceeds(t *testing.T) {
+	// Mock sshPush so it succeeds without a real SSH agent.
+	orig := sshPush
+	sshPush = func(_ *gogit.Repository, _, _ string) error { return nil }
+	defer func() { sshPush = orig }()
+
+	repo, dir := newTestRepo(t)
+	addCommit(t, repo, dir, "fix: c1", "v1")
+	if _, err := repo.CreateRemote(&gitconfig.RemoteConfig{
+		Name: "origin",
+		URLs: []string{"git@example.com:owner/repo.git"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Push(repo, "master", "v1.0.0", ""); err != nil {
+		t.Fatalf("Push with mocked SSH agent should succeed: %v", err)
+	}
+}
+
+func TestPushSSHAgentFailsFallsBackToCLI(t *testing.T) {
+	// SSH URL remote + sshPush fails → falls through to pushWithCLI.
+	orig := sshPush
+	sshPush = func(_ *gogit.Repository, _, _ string) error { return fmt.Errorf("no agent") }
+	defer func() { sshPush = orig }()
+
+	repo, dir := newTestRepo(t)
+	addCommit(t, repo, dir, "fix: c1", "v1")
+	if _, err := repo.CreateRemote(&gitconfig.RemoteConfig{
+		Name: "origin",
+		URLs: []string{"git@example.com:owner/repo.git"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// CLI push will fail (no real remote) — we just verify it ran at all.
+	err := Push(repo, "master", "v1.0.0", "")
+	if err == nil {
+		t.Error("expected error after SSH fallback to CLI with unreachable remote")
+	}
+}
+
+// ── pushWithSSHAgent internals ────────────────────────────────────────────────
+
+func TestPushWithSSHAgentAuthFails(t *testing.T) {
+	orig := newSSHAgentAuth
+	newSSHAgentAuth = func(_ string) (*gitssh.PublicKeysCallback, error) {
+		return nil, fmt.Errorf("SSH_AUTH_SOCK not set")
+	}
+	defer func() { newSSHAgentAuth = orig }()
+
+	repo, dir := newTestRepo(t)
+	addCommit(t, repo, dir, "fix: c1", "v1")
+
+	err := pushWithSSHAgent(repo, "master", "v1.0.0")
+	if err == nil {
+		t.Error("expected error when SSH agent auth fails")
+	}
+}
+
+func TestPushWithSSHAgentNoRemote(t *testing.T) {
+	orig := newSSHAgentAuth
+	newSSHAgentAuth = func(user string) (*gitssh.PublicKeysCallback, error) {
+		return &gitssh.PublicKeysCallback{User: user}, nil
+	}
+	defer func() { newSSHAgentAuth = orig }()
+
+	repo, dir := newTestRepo(t)
+	addCommit(t, repo, dir, "fix: c1", "v1")
+	// No remote configured → repo.Remote("origin") fails.
+
+	err := pushWithSSHAgent(repo, "master", "v1.0.0")
+	if err == nil {
+		t.Error("expected error when no origin remote is configured")
+	}
+}
+
+func TestPushWithSSHAgentPushFails(t *testing.T) {
+	orig := newSSHAgentAuth
+	newSSHAgentAuth = func(user string) (*gitssh.PublicKeysCallback, error) {
+		return &gitssh.PublicKeysCallback{User: user}, nil
+	}
+	defer func() { newSSHAgentAuth = orig }()
+
+	repo, dir := newTestRepo(t)
+	addCommit(t, repo, dir, "fix: c1", "v1")
+	addTag(t, repo, "v1.0.0")
+	if _, err := repo.CreateRemote(&gitconfig.RemoteConfig{
+		Name: "origin",
+		URLs: []string{"/nonexistent/bare/repo"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	err := pushWithSSHAgent(repo, "master", "v1.0.0")
+	if err == nil {
+		t.Error("expected error when remote push fails")
+	}
+}
+
+func TestPushWithSSHAgentSuccess(t *testing.T) {
+	remoteDir := t.TempDir()
+	if _, err := gogit.PlainInit(remoteDir, true); err != nil {
+		t.Fatal(err)
+	}
+
+	orig := newSSHAgentAuth
+	newSSHAgentAuth = func(user string) (*gitssh.PublicKeysCallback, error) {
+		return &gitssh.PublicKeysCallback{User: user}, nil
+	}
+	defer func() { newSSHAgentAuth = orig }()
+
+	repo, dir := newTestRepo(t)
+	addCommit(t, repo, dir, "fix: c1", "v1")
+	addTag(t, repo, "v1.0.0")
+	if _, err := repo.CreateRemote(&gitconfig.RemoteConfig{
+		Name: "origin",
+		URLs: []string{remoteDir},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Local transport ignores auth — push succeeds regardless of the mock callback.
+	if err := pushWithSSHAgent(repo, "master", "v1.0.0"); err != nil {
+		t.Fatalf("expected success pushing to local bare remote: %v", err)
+	}
+}
+
+// ── pushWithGoGit error paths ─────────────────────────────────────────────────
+
+func TestPushWithGoGitNoRemote(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	addCommit(t, repo, dir, "fix: c1", "v1")
+	// No remote → repo.Remote("origin") fails inside pushWithGoGit.
+	err := Push(repo, "master", "v1.0.0", "some-token")
+	if err == nil {
+		t.Error("expected error when no origin remote is configured")
+	}
+}
+
+func TestPushWithGoGitPushFails(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	addCommit(t, repo, dir, "fix: c1", "v1")
+	addTag(t, repo, "v1.0.0")
+	if _, err := repo.CreateRemote(&gitconfig.RemoteConfig{
+		Name: "origin",
+		URLs: []string{"/nonexistent/bare/repo"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	err := Push(repo, "master", "v1.0.0", "some-token")
+	if err == nil {
+		t.Error("expected error when remote push fails")
+	}
+}
+
+// ── pushWithCLI: bare repo → no worktree ────────────────────────────────────
+
+func TestPushWithCLIBareRepo(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// No token, no SSH URL → goes to pushWithCLI → Worktree() fails for bare repo.
+	err = Push(repo, "master", "v1.0.0", "")
+	if err == nil {
+		t.Error("expected error for bare repo (no worktree)")
+	}
+}
+
+func TestPushWithCLISuccess(t *testing.T) {
+	// Non-bare repo + local bare remote + no token + no SSH URL → pushWithCLI → success.
+	repo, dir := newTestRepo(t)
+	sig := testSig()
+
+	wt, _ := repo.Worktree()
+	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	wt.Add("f.txt")
+	hash, err := wt.Commit("init", &gogit.CommitOptions{Author: sig})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.CreateTag("v1.0.0", hash, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	remoteDir := t.TempDir()
+	if _, err := gogit.PlainInit(remoteDir, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.CreateRemote(&gitconfig.RemoteConfig{
+		Name: "origin",
+		URLs: []string{remoteDir},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Detect default branch name (go-git uses "master" but git config may differ).
+	head, _ := repo.Head()
+	branchName := head.Name().Short()
+
+	if err := Push(repo, branchName, "v1.0.0", ""); err != nil {
+		t.Fatalf("pushWithCLI success: %v", err)
 	}
 }

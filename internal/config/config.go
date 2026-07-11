@@ -16,21 +16,61 @@ const filename = ".releaser.yml"
 type Config struct {
 	Git    GitConfig    `yaml:"git"`
 	Maven  MavenConfig  `yaml:"maven"`
+	Node   NodeConfig   `yaml:"node"`
 	GitLab GitLabConfig `yaml:"gitlab"`
 	GitHub GitHubConfig `yaml:"github"`
 }
 
 type GitConfig struct {
-	TagPrefix       string   `yaml:"tag_prefix"`
-	BranchPattern   string   `yaml:"branch_pattern"`
-	CommitMessage   string   `yaml:"commit_message"`
-	AuthorName      string   `yaml:"author_name"`
-	AuthorEmail     string   `yaml:"author_email"`
-	ReleasableTypes []string `yaml:"releasable_types"`
+	TagPrefix       string         `yaml:"tag_prefix"`
+	BranchPattern   string         `yaml:"branch_pattern"`
+	CommitMessage   string         `yaml:"commit_message"`
+	AuthorName      string         `yaml:"author_name"`
+	AuthorEmail     string         `yaml:"author_email"`
+	ReleasableTypes []string       `yaml:"releasable_types"`
+	BumpRules       BumpRulesConfig `yaml:"bump_rules"`
+}
+
+// BumpRulesConfig controls what version component each commit type bumps.
+// Valid values: "patch" (default) or "minor".
+type BumpRulesConfig struct {
+	Breaking string `yaml:"breaking"`
+	Feat     string `yaml:"feat"`
+	Fix      string `yaml:"fix"`
 }
 
 type MavenConfig struct {
-	PomPath string `yaml:"pom_path"`
+	PomPath  string   `yaml:"pom_path"`  // single path (default: "pom.xml")
+	PomPaths []string `yaml:"pom_paths"` // multiple paths; overrides PomPath when set
+}
+
+// EffectivePomPaths returns the list of pom.xml paths to process.
+// PomPaths takes precedence over PomPath; falls back to ["pom.xml"].
+func (m MavenConfig) EffectivePomPaths() []string {
+	if len(m.PomPaths) > 0 {
+		return m.PomPaths
+	}
+	if m.PomPath != "" {
+		return []string{m.PomPath}
+	}
+	return []string{"pom.xml"}
+}
+
+type NodeConfig struct {
+	PackageJSON  string   `yaml:"package_json"`  // single path
+	PackageJSONs []string `yaml:"package_jsons"` // multiple paths; overrides PackageJSON when set
+}
+
+// EffectivePaths returns the list of package.json paths to process.
+// Returns nil when no node paths are configured (node processing is opt-in).
+func (n NodeConfig) EffectivePaths() []string {
+	if len(n.PackageJSONs) > 0 {
+		return n.PackageJSONs
+	}
+	if n.PackageJSON != "" {
+		return []string{n.PackageJSON}
+	}
+	return nil
 }
 
 type GitLabConfig struct {
@@ -64,18 +104,24 @@ type Sources map[string]string
 
 func defaultSources() Sources {
 	return Sources{
-		"git.tag_prefix":       "default",
-		"git.branch_pattern":   "default",
-		"git.commit_message":   "default",
-		"git.author_name":      "default",
-		"git.author_email":     "default",
-		"git.releasable_types": "default",
-		"maven.pom_path":       "default",
-		"gitlab.url":           "default",
-		"gitlab.token":         "default",
-		"gitlab.project":       "default",
-		"github.token":         "default",
-		"github.repo":          "default",
+		"git.tag_prefix":          "default",
+		"git.branch_pattern":      "default",
+		"git.commit_message":      "default",
+		"git.author_name":         "default",
+		"git.author_email":        "default",
+		"git.releasable_types":    "default",
+		"git.bump_rules.breaking": "default",
+		"git.bump_rules.feat":     "default",
+		"git.bump_rules.fix":      "default",
+		"maven.pom_path":          "default",
+		"maven.pom_paths":         "default",
+		"node.package_json":       "default",
+		"node.package_jsons":      "default",
+		"gitlab.url":              "default",
+		"gitlab.token":            "default",
+		"gitlab.project":          "default",
+		"github.token":            "default",
+		"github.repo":             "default",
 	}
 }
 
@@ -126,8 +172,26 @@ func LoadWithSources(dir string) (Config, Sources, error) {
 	if len(overlay.Git.ReleasableTypes) > 0 {
 		src["git.releasable_types"] = "config file"
 	}
+	if overlay.Git.BumpRules.Breaking != "" {
+		src["git.bump_rules.breaking"] = "config file"
+	}
+	if overlay.Git.BumpRules.Feat != "" {
+		src["git.bump_rules.feat"] = "config file"
+	}
+	if overlay.Git.BumpRules.Fix != "" {
+		src["git.bump_rules.fix"] = "config file"
+	}
 	if overlay.Maven.PomPath != "" {
 		src["maven.pom_path"] = "config file"
+	}
+	if len(overlay.Maven.PomPaths) > 0 {
+		src["maven.pom_paths"] = "config file"
+	}
+	if overlay.Node.PackageJSON != "" {
+		src["node.package_json"] = "config file"
+	}
+	if len(overlay.Node.PackageJSONs) > 0 {
+		src["node.package_jsons"] = "config file"
 	}
 	if overlay.GitLab.URL != "" {
 		src["gitlab.url"] = "config file"

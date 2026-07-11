@@ -99,6 +99,28 @@ func TestUpdateBreakingSection(t *testing.T) {
 	}
 }
 
+func TestUpdateExistingFileNoHeading(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "CHANGELOG.md")
+
+	// File with content but no ## [ heading — new section appended at bottom.
+	os.WriteFile(path, []byte("# Changelog\n\nSome preamble.\n"), 0644)
+
+	err := Update(path, "v1.0.0", "1.0.0", []string{"fix: something"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, _ := os.ReadFile(path)
+	s := string(data)
+	if !strings.Contains(s, "## [1.0.0]") {
+		t.Error("expected version header appended")
+	}
+	if !strings.Contains(s, "# Changelog") {
+		t.Error("expected original content preserved")
+	}
+}
+
 func TestUpdateReadError(t *testing.T) {
 	dir := t.TempDir()
 	// Create a directory where the file should be — ReadFile will error.
@@ -107,5 +129,23 @@ func TestUpdateReadError(t *testing.T) {
 	err := Update(filepath.Join(dir, "CHANGELOG.md"), "v1.0.0", "1.0.0", []string{"fix: something"})
 	if err == nil {
 		t.Error("expected error when path is a directory")
+	}
+}
+
+func TestUpdateIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "CHANGELOG.md")
+
+	// Pre-seed with the version heading already present.
+	os.WriteFile(path, []byte("# Changelog\n\n## [1.0.0] - 2026-01-01\n\n- fix: something\n"), 0644)
+
+	// Second call must be a no-op (returns nil, file unchanged).
+	if err := Update(path, "v1.0.0", "1.0.0", []string{"fix: something"}); err != nil {
+		t.Fatalf("idempotent Update should not error, got: %v", err)
+	}
+
+	data, _ := os.ReadFile(path)
+	if strings.Count(string(data), "## [1.0.0]") != 1 {
+		t.Error("version heading should appear exactly once after idempotent call")
 	}
 }

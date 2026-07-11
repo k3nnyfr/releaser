@@ -3,6 +3,21 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.5.0] - 2026-07-11
+
+### Added
+
+- **Multi-module Maven support** — `maven.pom_paths: [...]` lists multiple `pom.xml` paths (e.g. root + sub-modules); overrides `pom_path`; each path is updated and committed in the same release commit
+- **Node.js `package.json` support** — opt-in via `node.package_json` (single path) or `node.package_jsons` (list, overrides the single path); version is bumped in-place alongside `pom.xml` and `CHANGELOG.md`
+- **`git.bump_rules` config** — controls which version component each commit type bumps: `breaking`, `feat`, `fix` each accept `"patch"` (default) or `"minor"`; allows e.g. `feat: "minor"` to bump the minor component instead of patch
+- **Injectable function vars in `cmd/main.go`** — `absPath`, `gitAllCommits`, `gitCommitsSince`, `gitCommitFiles` are now package-level vars overridable in tests to inject errors, enabling 100% per-package statement coverage across all 12 packages
+
+### Changed
+
+- **`--pom` flag** now clears `maven.pom_paths` before setting `maven.pom_path`, ensuring the CLI flag always wins over a multi-path config file entry
+- **`version.Next()` signature** — accepts a `map[commits.Type]semver.BumpLevel` bump-rules map as a sixth parameter; `nil` defaults to all-patch (no change to existing behaviour)
+- **Verbose config table** — now includes `git.bump_rules.breaking/feat/fix`, `maven.pom_paths` (effective list), and `node.paths` rows
+
 ## [1.4.0] - 2026-07-11
 
 ### Added

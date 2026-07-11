@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,8 @@ import (
 	gitcfg "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+
+	"git.k3nny.fr/releaser/internal/config"
 )
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -740,5 +743,460 @@ func TestRunVerbose(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Errorf("--verbose output missing %q\nfull output:\n%s", want, output)
 		}
+	}
+}
+
+// ── ui.go coverage ────────────────────────────────────────────────────────────
+
+func TestPaintColor(t *testing.T) {
+	old := useColor
+	useColor = true
+	defer func() { useColor = old }()
+
+	got := paint(ansiGreen, "hello")
+	if !strings.Contains(got, "hello") || !strings.Contains(got, ansiReset) || !strings.Contains(got, ansiGreen) {
+		t.Errorf("paint with color = %q", got)
+	}
+}
+
+func TestFmtSourceEnv(t *testing.T) {
+	old := useColor
+	useColor = false
+	defer func() { useColor = old }()
+
+	got := fmtSource("env: GITLAB_TOKEN")
+	if got != "[env: GITLAB_TOKEN]" {
+		t.Errorf("fmtSource env = %q", got)
+	}
+}
+
+func TestFmtSourceFlag(t *testing.T) {
+	old := useColor
+	useColor = false
+	defer func() { useColor = old }()
+
+	got := fmtSource("flag: --tag-prefix")
+	if got != "[flag: --tag-prefix]" {
+		t.Errorf("fmtSource flag = %q", got)
+	}
+}
+
+func TestFmtSourceConfigFile(t *testing.T) {
+	old := useColor
+	useColor = false
+	defer func() { useColor = old }()
+
+	got := fmtSource("config file")
+	if got != "[config file]" {
+		t.Errorf("fmtSource config file = %q", got)
+	}
+}
+
+// ── buildPublisher coverage ───────────────────────────────────────────────────
+
+func TestBuildPublisherGitHub(t *testing.T) {
+	cfg := config.Config{
+		GitHub: config.GitHubConfig{Token: "ghtoken", Repo: "owner/repo"},
+	}
+	pub, err := buildPublisher(cfg)
+	if err != nil {
+		t.Fatalf("buildPublisher GitHub: %v", err)
+	}
+	if pub == nil {
+		t.Fatal("expected non-nil publisher for GitHub config")
+	}
+}
+
+func TestBuildPublisherGitLabNoToken(t *testing.T) {
+	cfg := config.Config{
+		GitLab: config.GitLabConfig{URL: "https://gitlab.example.com", Project: "42"},
+	}
+	_, err := buildPublisher(cfg)
+	if err == nil {
+		t.Fatal("expected error when GitLab URL+Project set but token is empty")
+	}
+}
+
+// ── printVerboseConfig coverage ───────────────────────────────────────────────
+
+func TestPrintVerboseConfigDirect(t *testing.T) {
+	// Use a sparse Sources map (missing keys → source == "" → hits "default" branch).
+	// Also set non-empty ReleasableTypes and both tokens to cover those branches.
+	cfg := config.Config{
+		Git: config.GitConfig{
+			ReleasableTypes: []string{"fix", "feat"},
+		},
+		GitLab: config.GitLabConfig{Token: "secret"},
+		GitHub: config.GitHubConfig{Token: "ghsecret"},
+	}
+	src := config.Sources{} // empty → all lookups return ""
+
+	old := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	printVerboseConfig(cfg, src)
+
+	w.Close()
+	os.Stderr = old
+	out, _ := io.ReadAll(r)
+
+	if !strings.Contains(string(out), "fix, feat") {
+		t.Error("expected releasable types joined in output")
+	}
+	if !strings.Contains(string(out), "(set)") {
+		t.Error("expected '(set)' for configured tokens")
+	}
+}
+
+// ── initConfig coverage ───────────────────────────────────────────────────────
+
+func TestInitConfigWriteFails(t *testing.T) {
+	dir := t.TempDir()
+	os.Chmod(dir, 0555)
+	defer os.Chmod(dir, 0755)
+
+	err := initConfig(dir)
+	if err == nil {
+		t.Fatal("expected error writing .releaser.yml to read-only directory")
+	}
+}
+
+// ── run() injectable error paths ─────────────────────────────────────────────
+
+func TestRunVerboseInit(t *testing.T) {
+	dir := t.TempDir()
+	err := execCmd(t, "--init", "--verbose", "--repo", dir)
+	if err != nil {
+		t.Fatalf("--init --verbose: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".releaser.yml")); err != nil {
+		t.Error("expected .releaser.yml to be created")
+	}
+}
+
+func TestRunAbsPathError(t *testing.T) {
+	old := absPath
+	absPath = func(string) (string, error) { return "", fmt.Errorf("injected abs error") }
+	defer func() { absPath = old }()
+
+	err := execCmd(t, "--repo", ".")
+	if err == nil {
+		t.Fatal("expected error when filepath.Abs fails")
+	}
+}
+
+func TestRunWorkingTreeCheckFails(t *testing.T) {
+	_, dir := setupRepo(t)
+	addFile(t, dir, "x.go", "// fix")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
+
+	// Corrupt the git index so IsWorkingTreeClean fails.
+	os.WriteFile(filepath.Join(dir, ".git", "index"), []byte("garbage"), 0644)
+
+	err := execCmd(t, "--branch", "release/1.2", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected error for corrupt git index")
+	}
+}
+
+func TestRunLatestTagFails(t *testing.T) {
+	_, dir := setupRepo(t)
+	addFile(t, dir, "x.go", "// fix")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
+
+	tagsDir := filepath.Join(dir, ".git", "refs", "tags")
+	os.Chmod(tagsDir, 0000)
+	defer os.Chmod(tagsDir, 0755)
+
+	err := execCmd(t, "--dry-run", "--branch", "release/1.2", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected error for unreadable tags directory")
+	}
+}
+
+func TestRunAllCommitsError(t *testing.T) {
+	_, dir := setupRepo(t)
+	addFile(t, dir, "x.go", "// fix")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
+
+	old := gitAllCommits
+	gitAllCommits = func(_ *gogit.Repository) ([]string, error) {
+		return nil, fmt.Errorf("injected AllCommits error")
+	}
+	defer func() { gitAllCommits = old }()
+
+	err := execCmd(t, "--dry-run", "--branch", "release/1.2", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected error from AllCommits")
+	}
+}
+
+func TestRunCommitsSinceError(t *testing.T) {
+	repo, dir := setupRepo(t)
+	head, _ := repo.Head()
+	repo.CreateTag("1.2.0", head.Hash(), nil)
+
+	addFile(t, dir, "x.go", "// fix")
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
+
+	old := gitCommitsSince
+	gitCommitsSince = func(_ *gogit.Repository, _ string) ([]string, error) {
+		return nil, fmt.Errorf("injected CommitsSince error")
+	}
+	defer func() { gitCommitsSince = old }()
+
+	err := execCmd(t, "--dry-run", "--branch", "release/1.2", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected error from CommitsSince")
+	}
+}
+
+// ── verbose commit section coverage ──────────────────────────────────────────
+
+func TestRunVerboseBreakingAndFix(t *testing.T) {
+	// Covers: verbose "since: lastTag", message truncation (>70 chars),
+	// TypeBreaking color (ansiRed+ansiBold), TypeFix color (ansiGreen).
+	repo, dir := setupRepo(t)
+	head, _ := repo.Head()
+	repo.CreateTag("1.2.0", head.Hash(), nil)
+
+	w, _ := repo.Worktree()
+
+	addFile(t, dir, "a.go", "a")
+	w.Add("a.go")
+	w.Commit("feat!: redesign the entire public API surface which is a very long commit message header", &gogit.CommitOptions{Author: testSig()})
+
+	addFile(t, dir, "b.go", "b")
+	w.Add("b.go")
+	w.Commit("fix: correct null pointer in edge case handler", &gogit.CommitOptions{Author: testSig()})
+
+	old := os.Stderr
+	r, wp, _ := os.Pipe()
+	os.Stderr = wp
+
+	err := execCmd(t, "--dry-run", "--verbose", "--branch", "release/1.2", "--repo", dir)
+
+	wp.Close()
+	os.Stderr = old
+	io.ReadAll(r)
+
+	if err != nil {
+		t.Fatalf("verbose breaking+fix: unexpected error: %v", err)
+	}
+}
+
+// ── release.env write error ───────────────────────────────────────────────────
+
+func TestRunReleaseEnvWriteFails(t *testing.T) {
+	_, dir := setupRepo(t)
+	addFile(t, dir, "x.go", "// fix")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
+
+	// Empty directory is invisible to git — dirty check passes.
+	os.Mkdir(filepath.Join(dir, "release.env"), 0755)
+
+	err := execCmd(t, "--branch", "release/1.2", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected error when release.env is a directory")
+	}
+}
+
+// ── pom stat error ────────────────────────────────────────────────────────────
+
+func TestRunPomStatError(t *testing.T) {
+	// A null byte in the path makes os.Stat return EINVAL (not ErrNotExist),
+	// so hasPom=true and the stat error is propagated.
+	_, dir := setupRepo(t)
+	addFile(t, dir, "x.go", "// fix")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
+
+	err := execCmd(t, "--branch", "release/1.2", "--repo", dir, "--pom", "pom\x00.xml")
+	if err == nil {
+		t.Fatal("expected error for pom path with null byte (EINVAL)")
+	}
+}
+
+// ── changelog update error ────────────────────────────────────────────────────
+
+func TestRunChangelogUpdateFails(t *testing.T) {
+	_, dir := setupRepo(t)
+	addFile(t, dir, "x.go", "// fix")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
+
+	// Empty directory is invisible to git — dirty check passes.
+	// changelog.Update will fail trying to ReadFile on a directory.
+	os.Mkdir(filepath.Join(dir, "CHANGELOG.md"), 0755)
+
+	err := execCmd(t, "--branch", "release/1.2", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected error when CHANGELOG.md is a directory")
+	}
+}
+
+// ── CommitFiles error ─────────────────────────────────────────────────────────
+
+func TestRunCommitFilesError(t *testing.T) {
+	_, dir := setupRepo(t)
+	addFile(t, dir, "x.go", "// fix")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
+
+	old := gitCommitFiles
+	gitCommitFiles = func(_ *gogit.Repository, _ []string, _, _, _ string) (plumbing.Hash, error) {
+		return plumbing.ZeroHash, fmt.Errorf("injected commit error")
+	}
+	defer func() { gitCommitFiles = old }()
+
+	err := execCmd(t, "--branch", "release/1.2", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected error from CommitFiles")
+	}
+}
+
+// ── parseBumpRules coverage ───────────────────────────────────────────────────
+
+func TestParseBumpRules(t *testing.T) {
+	rules := config.BumpRulesConfig{Breaking: "minor", Feat: "minor", Fix: "minor"}
+	m := parseBumpRules(rules)
+	if len(m) != 3 {
+		t.Errorf("expected 3 entries in bump rules map, got %d", len(m))
+	}
+}
+
+// ── printVerboseConfig — bump_rules and node rows ─────────────────────────────
+
+func TestPrintVerboseConfigBumpRulesAndNode(t *testing.T) {
+	cfg := config.Config{
+		Git: config.GitConfig{
+			BumpRules: config.BumpRulesConfig{Breaking: "minor", Feat: "minor", Fix: "minor"},
+		},
+		Node: config.NodeConfig{PackageJSON: "package.json"},
+	}
+	src := config.Sources{}
+
+	old := os.Stderr
+	r, wp, _ := os.Pipe()
+	os.Stderr = wp
+	printVerboseConfig(cfg, src)
+	wp.Close()
+	os.Stderr = old
+	out, _ := io.ReadAll(r)
+	output := string(out)
+
+	if !strings.Contains(output, "minor") {
+		t.Error("expected 'minor' in output for bump_rules")
+	}
+	if !strings.Contains(output, "package.json") {
+		t.Error("expected 'package.json' in output for node.paths")
+	}
+}
+
+// ── node package.json handling ────────────────────────────────────────────────
+
+func writePackageJSON(t *testing.T, dir, ver string) {
+	t.Helper()
+	content := fmt.Sprintf(`{"name": "my-app", "version": "%s"}`, ver)
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunNodeVersionBump(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writePackageJSON(t, dir, "0.0.0")
+	commitAll(t, repo, dir, "chore: init")
+
+	// .releaser.yml is untracked — go-git IsClean ignores untracked files
+	os.WriteFile(filepath.Join(dir, ".releaser.yml"), []byte("node:\n  package_json: \"package.json\"\n"), 0644)
+
+	addFile(t, dir, "x.go", "// fix")
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: something", &gogit.CommitOptions{Author: testSig()})
+
+	err = execCmd(t, "--no-push", "--branch", "release/1.2", "--repo", dir)
+	if err != nil {
+		t.Fatalf("node version bump: unexpected error: %v", err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(dir, "package.json"))
+	if !strings.Contains(string(data), `"version": "1.2.0"`) {
+		t.Errorf("expected version 1.2.0 in package.json, got: %s", data)
+	}
+}
+
+func TestRunNodeReadVersionFails(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// invalid JSON — ReadVersion will fail
+	os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{not json`), 0644)
+	commitAll(t, repo, dir, "chore: init")
+
+	os.WriteFile(filepath.Join(dir, ".releaser.yml"), []byte("node:\n  package_json: \"package.json\"\n"), 0644)
+
+	addFile(t, dir, "x.go", "// fix")
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: something", &gogit.CommitOptions{Author: testSig()})
+
+	err = execCmd(t, "--branch", "release/1.2", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected error when package.json has invalid JSON")
+	}
+}
+
+func TestRunNodeWriteVersionFails(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writePackageJSON(t, dir, "0.0.0")
+	commitAll(t, repo, dir, "chore: init")
+
+	os.WriteFile(filepath.Join(dir, ".releaser.yml"), []byte("node:\n  package_json: \"package.json\"\n"), 0644)
+
+	addFile(t, dir, "x.go", "// fix")
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: something", &gogit.CommitOptions{Author: testSig()})
+
+	// Make package.json read-only so WriteVersion fails
+	os.Chmod(filepath.Join(dir, "package.json"), 0444)
+	defer os.Chmod(filepath.Join(dir, "package.json"), 0644)
+
+	err = execCmd(t, "--branch", "release/1.2", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected error when package.json is read-only")
 	}
 }
