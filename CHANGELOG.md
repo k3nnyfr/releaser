@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.6.1] - 2026-07-11
+
+### Fixed
+
+- **CI root-permission failures** — four tests that used `os.Chmod` to force error paths were failing in Docker CI (which runs as root, where chmod has no enforcement effect); each now skips with `os.Getuid() == 0`; the gitutil test had broken skip logic that only fired if `Chmod` itself errored — replaced with the same upfront UID check
+
 ## [1.6.0] - 2026-07-11
 
 ### Added
