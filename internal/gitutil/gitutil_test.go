@@ -765,6 +765,9 @@ func TestLatestTagTagsIterFails(t *testing.T) {
 
 	// Reopen so the filesystem storer holds no cached state.
 	repo2, err := gogit.PlainOpen(dir)
+	if err != nil {
+		t.Fatalf("PlainOpen: %v", err)
+	}
 
 	_, _, err = LatestTag(repo2, branch.Info{Major: 1, Minor: 2, TagPrefix: "v"})
 	if err == nil {

@@ -77,7 +77,7 @@ tasks:
       - go test -run='^Fuzz' {{.PKG}}
 
   ci:
-    desc: Full CI pipeline — tidy check, vet, test
+    desc: Full CI pipeline — tidy check, vet, staticcheck, test
     cmds:
       - task: tidy
       - |
@@ -86,6 +86,7 @@ tasks:
           exit 1
         fi
       - task: lint
+      - go tool staticcheck ./...
       - task: test
 
   clean:
