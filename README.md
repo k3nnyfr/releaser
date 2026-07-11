@@ -1,6 +1,6 @@
 # releaser
 
-![release](https://img.shields.io/badge/release-v1.5.0-blue.svg)
+![release](https://img.shields.io/badge/release-v1.5.1-blue.svg)
 
 A CI-friendly release automation tool for GitFlow workflows using Conventional Commits.
 

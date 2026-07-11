@@ -6,3 +6,7 @@ releaser-*
 coverage.out
 coverage.html
 
+# docs build artifacts (downloaded at build time)
+/docs/themes/
+/docs/public/
+

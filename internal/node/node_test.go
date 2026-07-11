@@ -82,6 +82,21 @@ func TestWriteVersionNotFound(t *testing.T) {
 	}
 }
 
+// FuzzWriteVersion verifies WriteVersion never panics on arbitrary content or version strings.
+func FuzzWriteVersion(f *testing.F) {
+	f.Add(simplePackage, "1.2.3", "1.2.4")
+	f.Add(`{"version":"0.0.1"}`, "0.0.1", "0.0.2")
+	f.Add(`{}`, "1.0.0", "1.0.1")
+	f.Add("", "1.0.0", "1.0.1")
+	f.Add(`{"name":"app","version":"1.0.0","version":"dup"}`, "1.0.0", "1.0.1")
+
+	f.Fuzz(func(t *testing.T, content, oldVersion, newVersion string) {
+		path := filepath.Join(t.TempDir(), "package.json")
+		os.WriteFile(path, []byte(content), 0644) //nolint:errcheck
+		WriteVersion(path, oldVersion, newVersion) //nolint:errcheck
+	})
+}
+
 // FuzzReadVersion verifies ReadVersion never panics on arbitrary content.
 func FuzzReadVersion(f *testing.F) {
 	f.Add(simplePackage)

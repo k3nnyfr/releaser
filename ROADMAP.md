@@ -74,7 +74,7 @@
 - [x] ~~GitHub release support~~ — ✓ shipped v1.4.0 (`internal/ghclient`, `GITHUB_TOKEN` env, `github.token`/`github.repo` config; GitHub takes precedence over GitLab)
 - [x] ~~SSH agent push~~ — ✓ shipped v1.4.0 (go-git `gitssh.NewSSHAgentAuth` for `git@`/`ssh://` remotes)
 - [x] ~~Configurable bump rules~~ — ✓ shipped v1.4.0 (`git.releasable_types` config; filter which commit types trigger a release)
-- [ ] Documentation site
+- [x] ~~Documentation site~~ — ✓ shipped v1.5.1 (Hugo + Geekdoc; installation, CLI reference, configuration, CI integration pages; deployed via Gitea CI to `gh-pages`)
 
 ## v1.5 — Multi-module, Node.js, configurable bump rules ✅
 
@@ -87,4 +87,3 @@
 
 - Gradle support (`build.gradle` / `build.gradle.kts`)
 - Slack / Teams notification on release
-- Documentation site

@@ -4,6 +4,7 @@ vars:
   BIN: ./bin/releaser
   PKG: ./...
   FUZZ_TIME: 30s
+  GEEKDOC_VERSION: "v4.1.1"
 
 tasks:
   default:
@@ -105,3 +106,23 @@ tasks:
       TAG: '{{.TAG | default "releaser:dev"}}'
     cmds:
       - docker run --rm {{.TAG}} {{.CLI_ARGS}}
+
+  docs:setup:
+    desc: Download Geekdoc theme into docs/themes/geekdoc/
+    cmds:
+      - mkdir -p docs/themes/geekdoc
+      - curl -sSL "https://github.com/thegeeklab/hugo-geekdoc/releases/download/{{.GEEKDOC_VERSION}}/hugo-geekdoc.tar.gz" | tar xz -C docs/themes/geekdoc
+    status:
+      - test -f docs/themes/geekdoc/theme.toml
+
+  docs:serve:
+    desc: Serve docs locally with live reload (requires hugo)
+    deps: [docs:setup]
+    cmds:
+      - hugo server --source docs
+
+  docs:build:
+    desc: Build docs to docs/public/ (requires hugo)
+    deps: [docs:setup]
+    cmds:
+      - hugo --source docs --destination public --minify

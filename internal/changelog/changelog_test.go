@@ -149,3 +149,22 @@ func TestUpdateIdempotent(t *testing.T) {
 		t.Error("version heading should appear exactly once after idempotent call")
 	}
 }
+
+// FuzzUpdate verifies Update never panics on arbitrary existing file content or commit messages.
+func FuzzUpdate(f *testing.F) {
+	f.Add("", "feat: add thing")
+	f.Add("# Changelog\n\n## [1.0.0] - 2026-01-01\n\n### Added\n- something\n", "fix: something")
+	f.Add("some preamble\n", "feat!: breaking change")
+	f.Add("\n## [2.0.0] - 2026-01-01\n", "feat: another thing")
+	f.Add("", "chore: no release")
+	f.Add("", "")
+
+	f.Fuzz(func(t *testing.T, existing, message string) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "CHANGELOG.md")
+		if existing != "" {
+			os.WriteFile(path, []byte(existing), 0644) //nolint:errcheck
+		}
+		Update(path, "v1.0.0", "1.0.0", []string{message}) //nolint:errcheck
+	})
+}

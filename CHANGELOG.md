@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.5.1] - 2026-07-11
+
+### Added
+
+- **Documentation site** — Hugo + Geekdoc theme; content covers installation, CLI reference, configuration, CI integration, and changelog; deployed to `gh-pages` via Gitea CI on push to `main`
+- **`docs:setup` / `docs:serve` / `docs:build` Taskfile tasks** — `docs:setup` downloads the Geekdoc theme bundle (idempotent); `docs:serve` runs Hugo with live reload; `docs:build` produces a minified static site
+- **`FuzzUpdate`** in `internal/changelog` — fuzzes arbitrary existing file content paired with a commit message, covering the `\n## [` insertion logic and idempotency guard
+- **`FuzzWriteVersion`** in `internal/node` — mirrors `FuzzReplaceProjectVersion` in `internal/maven`; fuzzes arbitrary JSON content with arbitrary old/new version strings
+
+### Changed
+
+- **CLAUDE.md** — new "Fuzzing" section: authoritative table of which packages require fuzz tests and why, list of exempt packages with rationale, seed corpus guidelines
+
 ## [1.5.0] - 2026-07-11
 
 ### Added
