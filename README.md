@@ -2,7 +2,7 @@
 
 <img src="docs/static/images/releaser-logo-128.png" alt="releaser logo" width="128">
 
-![release](https://img.shields.io/badge/release-v1.6.2-blue.svg)
+![release](https://img.shields.io/badge/release-v1.6.3-blue.svg)
 
 A CI-friendly release automation tool for GitFlow workflows using Conventional Commits.
 

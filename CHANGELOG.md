@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.6.3] - 2026-07-11
+
+### Added
+
+- **Logo** — `docs/static/images/releaser-logo-1024.png` (1024×1024) set as Geekdoc site header logo via `geekdocLogo`; 128×128 version added to README above the release badge
+
+### Fixed
+
+- **`.gitignore` over-matching** — `releaser-*` was catching files inside `docs/static/images/`; anchored to `/releaser-*` so only root-level release binaries are excluded
+
+### Changed
+
+- **`docs/hugo.toml` `baseURL`** — set to `https://releaser.k3nny.fr/` (was `"/"`)
+
 ## [1.6.2] - 2026-07-11
 
 ### Changed
