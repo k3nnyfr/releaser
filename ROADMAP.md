@@ -74,7 +74,7 @@
 - [x] ~~GitHub release support~~ — ✓ shipped v1.4.0 (`internal/ghclient`, `GITHUB_TOKEN` env, `github.token`/`github.repo` config; GitHub takes precedence over GitLab)
 - [x] ~~SSH agent push~~ — ✓ shipped v1.4.0 (go-git `gitssh.NewSSHAgentAuth` for `git@`/`ssh://` remotes)
 - [x] ~~Configurable bump rules~~ — ✓ shipped v1.4.0 (`git.releasable_types` config; filter which commit types trigger a release)
-- [x] ~~Documentation site~~ — ✓ shipped v1.5.1 (Hugo + Geekdoc; installation, CLI reference, configuration, CI integration pages; deployed via Gitea CI to `gh-pages`)
+- [x] ~~Documentation site~~ — ✓ shipped v1.5.1 (Hugo + Geekdoc; installation, CLI reference, configuration, CI integration pages; live at https://releaser.k3nny.fr)
 
 ## v1.5 — Multi-module, Node.js, configurable bump rules ✅
 

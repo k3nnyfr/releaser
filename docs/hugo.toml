@@ -1,4 +1,4 @@
-baseURL = "/"
+baseURL = "https://releaser.k3nny.fr/"
 title = "releaser"
 theme = "geekdoc"
 
