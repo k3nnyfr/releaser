@@ -752,20 +752,19 @@ func TestLatestTagTagsIterFails(t *testing.T) {
 	repo, dir := newTestRepo(t)
 	addCommit(t, repo, dir, "fix: c1", "v1")
 
+	if os.Getuid() == 0 {
+		t.Skip("skipping: chmod restrictions do not apply when running as root")
+	}
+
 	// Make .git/refs/tags/ unreadable so that go-git's walkReferencesTree
 	// returns EPERM when it tries to list the directory, triggering the
-	// Tags() error path.  Skip when running as root (chmod has no effect).
+	// Tags() error path.
 	tagsDir := filepath.Join(dir, ".git", "refs", "tags")
-	if err := os.Chmod(tagsDir, 0000); err != nil {
-		t.Skipf("cannot chmod %s: %v", tagsDir, err)
-	}
+	os.Chmod(tagsDir, 0000)
 	t.Cleanup(func() { os.Chmod(tagsDir, 0755) })
 
 	// Reopen so the filesystem storer holds no cached state.
 	repo2, err := gogit.PlainOpen(dir)
-	if err != nil {
-		t.Skipf("PlainOpen failed (likely running as root): %v", err)
-	}
 
 	_, _, err = LatestTag(repo2, branch.Info{Major: 1, Minor: 2, TagPrefix: "v"})
 	if err == nil {

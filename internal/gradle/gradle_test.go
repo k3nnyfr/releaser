@@ -124,6 +124,9 @@ func TestWriteVersionNotFound(t *testing.T) {
 }
 
 func TestWriteVersionReadOnly(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("skipping: chmod restrictions do not apply when running as root")
+	}
 	path := writeGradle(t, gradleKotlin)
 	os.Chmod(path, 0444)
 	defer os.Chmod(path, 0644)

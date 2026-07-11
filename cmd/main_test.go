@@ -852,6 +852,9 @@ func TestPrintVerboseConfigDirect(t *testing.T) {
 // ── initConfig coverage ───────────────────────────────────────────────────────
 
 func TestInitConfigWriteFails(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("skipping: chmod restrictions do not apply when running as root")
+	}
 	dir := t.TempDir()
 	os.Chmod(dir, 0555)
 	defer os.Chmod(dir, 0755)
@@ -904,6 +907,9 @@ func TestRunWorkingTreeCheckFails(t *testing.T) {
 }
 
 func TestRunLatestTagFails(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("skipping: chmod restrictions do not apply when running as root")
+	}
 	_, dir := setupRepo(t)
 	addFile(t, dir, "x.go", "// fix")
 	repo, _ := gogit.PlainOpen(dir)
