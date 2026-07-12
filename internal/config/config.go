@@ -21,6 +21,7 @@ type Config struct {
 	Python  PythonConfig  `yaml:"python"`
 	GitLab  GitLabConfig  `yaml:"gitlab"`
 	GitHub GitHubConfig `yaml:"github"`
+	Notify NotifyConfig `yaml:"notify"`
 }
 
 type GitConfig struct {
@@ -120,6 +121,17 @@ type GitHubConfig struct {
 	Repo  string `yaml:"repo"` // "owner/repo"
 }
 
+// NotifyConfig configures best-effort release notifications. Every field is
+// opt-in — a target is only used when its required fields are non-empty.
+type NotifyConfig struct {
+	SlackWebhookURL      string `yaml:"slack_webhook_url"`
+	TeamsWebhookURL      string `yaml:"teams_webhook_url"`
+	GoogleChatWebhookURL string `yaml:"google_chat_webhook_url"`
+	TelegramBotToken     string `yaml:"telegram_bot_token"`
+	TelegramChatID       string `yaml:"telegram_chat_id"`
+	WebhookURL           string `yaml:"webhook_url"`
+}
+
 func defaults() Config {
 	return Config{
 		Git: GitConfig{
@@ -162,6 +174,12 @@ func defaultSources() Sources {
 		"gitlab.project":          "default",
 		"github.token":            "default",
 		"github.repo":             "default",
+		"notify.slack_webhook_url":       "default",
+		"notify.teams_webhook_url":       "default",
+		"notify.google_chat_webhook_url": "default",
+		"notify.telegram_bot_token":      "default",
+		"notify.telegram_chat_id":        "default",
+		"notify.webhook_url":             "default",
 	}
 }
 
@@ -260,6 +278,24 @@ func LoadWithSources(dir string) (Config, Sources, error) {
 	if overlay.GitHub.Repo != "" {
 		src["github.repo"] = "config file"
 	}
+	if overlay.Notify.SlackWebhookURL != "" {
+		src["notify.slack_webhook_url"] = "config file"
+	}
+	if overlay.Notify.TeamsWebhookURL != "" {
+		src["notify.teams_webhook_url"] = "config file"
+	}
+	if overlay.Notify.GoogleChatWebhookURL != "" {
+		src["notify.google_chat_webhook_url"] = "config file"
+	}
+	if overlay.Notify.TelegramBotToken != "" {
+		src["notify.telegram_bot_token"] = "config file"
+	}
+	if overlay.Notify.TelegramChatID != "" {
+		src["notify.telegram_chat_id"] = "config file"
+	}
+	if overlay.Notify.WebhookURL != "" {
+		src["notify.webhook_url"] = "config file"
+	}
 
 	return cfg, src, nil
 }
@@ -307,6 +343,54 @@ func (c *Config) ApplyEnvWithSources(src Sources) {
 			c.GitHub.Token = v
 			if src != nil {
 				src["github.token"] = "env: GITHUB_TOKEN"
+			}
+		}
+	}
+	if c.Notify.SlackWebhookURL == "" {
+		if v := os.Getenv("SLACK_WEBHOOK_URL"); v != "" {
+			c.Notify.SlackWebhookURL = v
+			if src != nil {
+				src["notify.slack_webhook_url"] = "env: SLACK_WEBHOOK_URL"
+			}
+		}
+	}
+	if c.Notify.TeamsWebhookURL == "" {
+		if v := os.Getenv("TEAMS_WEBHOOK_URL"); v != "" {
+			c.Notify.TeamsWebhookURL = v
+			if src != nil {
+				src["notify.teams_webhook_url"] = "env: TEAMS_WEBHOOK_URL"
+			}
+		}
+	}
+	if c.Notify.GoogleChatWebhookURL == "" {
+		if v := os.Getenv("GOOGLE_CHAT_WEBHOOK_URL"); v != "" {
+			c.Notify.GoogleChatWebhookURL = v
+			if src != nil {
+				src["notify.google_chat_webhook_url"] = "env: GOOGLE_CHAT_WEBHOOK_URL"
+			}
+		}
+	}
+	if c.Notify.TelegramBotToken == "" {
+		if v := os.Getenv("TELEGRAM_BOT_TOKEN"); v != "" {
+			c.Notify.TelegramBotToken = v
+			if src != nil {
+				src["notify.telegram_bot_token"] = "env: TELEGRAM_BOT_TOKEN"
+			}
+		}
+	}
+	if c.Notify.TelegramChatID == "" {
+		if v := os.Getenv("TELEGRAM_CHAT_ID"); v != "" {
+			c.Notify.TelegramChatID = v
+			if src != nil {
+				src["notify.telegram_chat_id"] = "env: TELEGRAM_CHAT_ID"
+			}
+		}
+	}
+	if c.Notify.WebhookURL == "" {
+		if v := os.Getenv("RELEASER_WEBHOOK_URL"); v != "" {
+			c.Notify.WebhookURL = v
+			if src != nil {
+				src["notify.webhook_url"] = "env: RELEASER_WEBHOOK_URL"
 			}
 		}
 	}

@@ -3,6 +3,12 @@ title: Changelog
 weight: 50
 ---
 
+## v1.8.0 — 2026-07-12
+
+### Added
+
+- **Release notifications** — best-effort notification on release to Slack, Microsoft Teams, Google Chat, Telegram, and/or a generic JSON webhook via the new `notify` config section; every target is independently opt-in (config file or env var), and a failed notification never fails the release
+
 ## v1.7.0 — 2026-07-12
 
 ### Added

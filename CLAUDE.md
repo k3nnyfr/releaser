@@ -15,9 +15,12 @@ internal/config/     — .releaser.yml loader + env var overlay + source trackin
 internal/ghclient/   — minimal GitHub Releases API client
 internal/gitutil/    — go-git helpers: tag discovery, commit walker, push
 internal/glclient/   — minimal GitLab Releases API client
+internal/gradle/     — build.gradle / build.gradle.kts version reader/writer
 internal/maven/      — pom.xml version reader/writer
 internal/node/       — package.json version reader/writer
 internal/notes/      — release notes body generator
+internal/notify/     — Slack / Teams / Google Chat / Telegram / webhook release notifications
+internal/pyproject/  — pyproject.toml version reader/writer
 internal/version/    — semver next-version calculator
 ```
 
@@ -67,6 +70,7 @@ All seed cases must pass. The table below is authoritative — keep it in sync w
 | `internal/maven` | `FuzzReadVersion`, `FuzzReplaceProjectVersion` | reads/rewrites arbitrary XML file content |
 | `internal/node` | `FuzzReadVersion`, `FuzzWriteVersion` | reads/rewrites arbitrary JSON file content |
 | `internal/notes` | `FuzzGenerate` | generates notes from arbitrary commit messages |
+| `internal/notify` | `FuzzMessagePayloads` | builds notification JSON payloads from arbitrary release notes |
 
 Packages **not** requiring fuzz tests (no free-form text parsing): `internal/config` (yaml.v3 handles parsing), `internal/ghclient` (HTTP client, no text parsing), `internal/gitutil` (git operations), `internal/version` (typed inputs only), `cmd` (CLI orchestration). When adding a new package, check whether it parses text or rewrites files — if yes, add a row above.
 
@@ -74,6 +78,17 @@ Fuzz seed corpus guidelines:
 - Include a realistic happy-path input as the first seed.
 - Include empty string, binary/non-UTF-8 bytes (`"\x00\xff"`), and inputs that stress known branches (e.g. existing `## [version]` heading for changelog).
 - The fuzz body must never assert on return values — only verify no panic.
+
+## Documentation sync
+
+**Every change that adds, changes, or removes a feature, flag, or config key must update all of the following in the same commit:**
+
+- `README.md` — features list, usage examples, option tables, version badge
+- `CHANGELOG.md` — new dated `## [X.Y.Z]` entry (see `/release` skill for format)
+- `ROADMAP.md` — mark shipped items `✓`, add a "Shipped in vX.Y.Z" note, drop outdated caveats
+- Hugo docs under `docs/content/` (`installation.md`, `usage.md`, `configuration.md`, `ci-integration.md`, `changelog.md`) — whichever pages describe the changed behavior
+
+Treat these as one unit: a PR that changes CLI behavior or config but leaves any of the above stale is incomplete. `docs/content/changelog.md` only needs an entry for tagged (minor/major) releases, matching the pattern already in that file — patch-only releases are covered by the root `CHANGELOG.md` but not duplicated there.
 
 ## Dependency rules
 

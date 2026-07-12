@@ -69,6 +69,14 @@ gitlab:
 github:
   token: ""                                          # prefer env GITHUB_TOKEN
   repo: ""                                           # "owner/repo" format
+
+notify:                                              # opt-in — every field independent; failures are warnings, not errors
+  # slack_webhook_url: ""                             # or env SLACK_WEBHOOK_URL
+  # teams_webhook_url: ""                             # or env TEAMS_WEBHOOK_URL
+  # google_chat_webhook_url: ""                       # or env GOOGLE_CHAT_WEBHOOK_URL
+  # telegram_bot_token: ""                            # or env TELEGRAM_BOT_TOKEN (both required)
+  # telegram_chat_id: ""                              # or env TELEGRAM_CHAT_ID
+  # webhook_url: ""                                   # generic {"version","notes"} JSON POST; or env RELEASER_WEBHOOK_URL
 ```
 
 {{< hint info >}}
@@ -84,6 +92,11 @@ When both `github.*` and `gitlab.*` are configured, GitHub takes precedence.
 | `CI_PROJECT_ID` | GitLab project identifier (numeric) |
 | `CI_PROJECT_PATH` | GitLab project identifier (fallback) |
 | `GITHUB_TOKEN` | GitHub API auth |
+| `SLACK_WEBHOOK_URL` | Slack release notification |
+| `TEAMS_WEBHOOK_URL` | Microsoft Teams release notification |
+| `GOOGLE_CHAT_WEBHOOK_URL` | Google Chat release notification |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | Telegram release notification (both required) |
+| `RELEASER_WEBHOOK_URL` | Generic webhook release notification |
 
 ## Config sources
 
@@ -177,3 +190,24 @@ gradle:
 ```
 
 The `--gradle <path>` CLI flag sets a single build file path and clears `build_files`.
+
+## Notifications
+
+The `notify` section is opt-in — every target is independent, and any combination may be configured at once. A notification failure is logged as a warning and never fails the release; notifications fire once the tag has been pushed, whether or not a GitLab/GitHub release is also created (`--no-release` still notifies; `--no-push` and `--no-commit` do not, since nothing was published).
+
+```yaml
+notify:
+  slack_webhook_url: "https://hooks.slack.com/services/..."
+  teams_webhook_url: "https://outlook.office.com/webhook/..."
+  google_chat_webhook_url: "https://chat.googleapis.com/v1/spaces/.../messages?key=..."
+  telegram_bot_token: "123456:ABC-..."
+  telegram_chat_id: "-1001234567890"
+  webhook_url: "https://example.com/hooks/releaser"
+```
+
+- **Slack** / **Google Chat** — a single `{"text": "..."}` incoming-webhook payload.
+- **Microsoft Teams** — a legacy O365 connector `MessageCard` payload (the format Teams incoming webhook URLs accept).
+- **Telegram** — `telegram_bot_token` and `telegram_chat_id` are both required; posts to the Bot API `sendMessage` endpoint as plain text (no `parse_mode`, since release notes come from free-form commit messages and aren't guaranteed to be valid Telegram Markdown).
+- **Generic webhook** — POSTs `{"version": "<tag>", "notes": "<release notes>"}` for any downstream consumer (n8n, Zapier, a custom receiver).
+
+Each field also has an environment variable fallback — see [Environment variables](#environment-variables) above.

@@ -20,3 +20,7 @@ pygmentsCodeFences = true
   geekdocMenuBundle = true
   geekdocBreadcrumb = false
   geekdocToC = true
+
+  [params.geekdocContentLicense]
+    name = "Apache License 2.0"
+    link = "https://git.k3nny.fr/k3nny/releaser/src/branch/main/LICENSE"

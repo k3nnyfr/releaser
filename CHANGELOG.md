@@ -3,6 +3,14 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.8.0] - 2026-07-12
+
+### Added
+
+- **Release notifications** — new `internal/notify` package; best-effort notification on release to Slack, Microsoft Teams, Google Chat, Telegram, and/or a generic JSON webhook; every target is independently opt-in and a failed notification never fails the release
+- **`notify` config section** — `slack_webhook_url`, `teams_webhook_url`, `google_chat_webhook_url`, `telegram_bot_token` + `telegram_chat_id`, `webhook_url`; each also configurable via env var (`SLACK_WEBHOOK_URL`, `TEAMS_WEBHOOK_URL`, `GOOGLE_CHAT_WEBHOOK_URL`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `RELEASER_WEBHOOK_URL`)
+- **`FuzzMessagePayloads`** in `internal/notify` — 100% per-package statement coverage maintained across all 15 packages
+
 ## [1.7.1] - 2026-07-12
 
 ### Added

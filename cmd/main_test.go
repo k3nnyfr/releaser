@@ -526,6 +526,118 @@ func TestRunWithGitLab(t *testing.T) {
 	}
 }
 
+func TestRunWithNotify(t *testing.T) {
+	var notified bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		notified = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	_, dir := setupRepoWithRemote(t)
+	addFile(t, dir, "x.go", "// fix")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
+
+	t.Setenv("SLACK_WEBHOOK_URL", srv.URL)
+
+	err := execCmd(t, "--branch", "release/1.2", "--repo", dir)
+	if err != nil {
+		t.Fatalf("release with notify: unexpected error: %v", err)
+	}
+	if !notified {
+		t.Error("expected Slack webhook to be called")
+	}
+}
+
+func TestRunNotifyFailureDoesNotFailRelease(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	_, dir := setupRepoWithRemote(t)
+	addFile(t, dir, "x.go", "// fix")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
+
+	t.Setenv("SLACK_WEBHOOK_URL", srv.URL)
+
+	old := os.Stderr
+	r, wPipe, _ := os.Pipe()
+	os.Stderr = wPipe
+
+	err := execCmd(t, "--branch", "release/1.2", "--repo", dir)
+
+	wPipe.Close()
+	os.Stderr = old
+	rawBytes, _ := io.ReadAll(r)
+	output := string(rawBytes)
+
+	if err != nil {
+		t.Fatalf("a failed notification must not fail the release: %v", err)
+	}
+	if !strings.Contains(output, "notification failed") {
+		t.Errorf("expected a notification-failed warning, got:\n%s", output)
+	}
+}
+
+func TestRunNoReleaseStillNotifies(t *testing.T) {
+	var notified bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		notified = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	_, dir := setupRepoWithRemote(t)
+	addFile(t, dir, "x.go", "// fix")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
+
+	t.Setenv("SLACK_WEBHOOK_URL", srv.URL)
+
+	err := execCmd(t, "--no-release", "--branch", "release/1.2", "--repo", dir)
+	if err != nil {
+		t.Fatalf("--no-release: unexpected error: %v", err)
+	}
+	if !notified {
+		t.Error("expected Slack webhook to be called even with --no-release")
+	}
+}
+
+func TestRunNoPushSkipsNotify(t *testing.T) {
+	var notified bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		notified = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	_, dir := setupRepo(t)
+	addFile(t, dir, "x.go", "// fix")
+	repo, _ := gogit.PlainOpen(dir)
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
+
+	t.Setenv("SLACK_WEBHOOK_URL", srv.URL)
+
+	err := execCmd(t, "--no-push", "--branch", "release/1.2", "--repo", dir)
+	if err != nil {
+		t.Fatalf("--no-push: unexpected error: %v", err)
+	}
+	if notified {
+		t.Error("--no-push must not send notifications — nothing was published")
+	}
+}
+
 // ── main() tests via exitFn ───────────────────────────────────────────────────
 
 func TestMainSuccess(t *testing.T) {

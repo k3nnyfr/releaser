@@ -381,6 +381,98 @@ func TestLoadPythonPathsSources(t *testing.T) {
 	}
 }
 
+func TestLoadNotifySources(t *testing.T) {
+	dir := t.TempDir()
+	content := `
+notify:
+  slack_webhook_url: "https://hooks.slack.example/x"
+  teams_webhook_url: "https://outlook.office.example/y"
+  google_chat_webhook_url: "https://chat.googleapis.example/z"
+  telegram_bot_token: "bot-token"
+  telegram_chat_id: "chat-1"
+  webhook_url: "https://example.com/webhook"
+`
+	if err := os.WriteFile(filepath.Join(dir, filename), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, src, err := LoadWithSources(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Notify.SlackWebhookURL != "https://hooks.slack.example/x" {
+		t.Errorf("SlackWebhookURL = %q", cfg.Notify.SlackWebhookURL)
+	}
+	if cfg.Notify.TeamsWebhookURL != "https://outlook.office.example/y" {
+		t.Errorf("TeamsWebhookURL = %q", cfg.Notify.TeamsWebhookURL)
+	}
+	if cfg.Notify.GoogleChatWebhookURL != "https://chat.googleapis.example/z" {
+		t.Errorf("GoogleChatWebhookURL = %q", cfg.Notify.GoogleChatWebhookURL)
+	}
+	if cfg.Notify.TelegramBotToken != "bot-token" {
+		t.Errorf("TelegramBotToken = %q", cfg.Notify.TelegramBotToken)
+	}
+	if cfg.Notify.TelegramChatID != "chat-1" {
+		t.Errorf("TelegramChatID = %q", cfg.Notify.TelegramChatID)
+	}
+	if cfg.Notify.WebhookURL != "https://example.com/webhook" {
+		t.Errorf("WebhookURL = %q", cfg.Notify.WebhookURL)
+	}
+
+	wantConfigFile := []string{
+		"notify.slack_webhook_url", "notify.teams_webhook_url", "notify.google_chat_webhook_url",
+		"notify.telegram_bot_token", "notify.telegram_chat_id", "notify.webhook_url",
+	}
+	for _, key := range wantConfigFile {
+		if got := src[key]; got != "config file" {
+			t.Errorf("src[%q] = %q, want %q", key, got, "config file")
+		}
+	}
+}
+
+func TestApplyEnvWithSourcesNotify(t *testing.T) {
+	t.Setenv("SLACK_WEBHOOK_URL", "https://hooks.slack.example/env")
+	t.Setenv("TEAMS_WEBHOOK_URL", "https://outlook.office.example/env")
+	t.Setenv("GOOGLE_CHAT_WEBHOOK_URL", "https://chat.googleapis.example/env")
+	t.Setenv("TELEGRAM_BOT_TOKEN", "env-bot-token")
+	t.Setenv("TELEGRAM_CHAT_ID", "env-chat-id")
+	t.Setenv("RELEASER_WEBHOOK_URL", "https://example.com/env-webhook")
+
+	cfg := defaults()
+	src := defaultSources()
+	cfg.ApplyEnvWithSources(src)
+
+	cases := []struct {
+		got, want, srcKey, wantSrc string
+	}{
+		{cfg.Notify.SlackWebhookURL, "https://hooks.slack.example/env", "notify.slack_webhook_url", "env: SLACK_WEBHOOK_URL"},
+		{cfg.Notify.TeamsWebhookURL, "https://outlook.office.example/env", "notify.teams_webhook_url", "env: TEAMS_WEBHOOK_URL"},
+		{cfg.Notify.GoogleChatWebhookURL, "https://chat.googleapis.example/env", "notify.google_chat_webhook_url", "env: GOOGLE_CHAT_WEBHOOK_URL"},
+		{cfg.Notify.TelegramBotToken, "env-bot-token", "notify.telegram_bot_token", "env: TELEGRAM_BOT_TOKEN"},
+		{cfg.Notify.TelegramChatID, "env-chat-id", "notify.telegram_chat_id", "env: TELEGRAM_CHAT_ID"},
+		{cfg.Notify.WebhookURL, "https://example.com/env-webhook", "notify.webhook_url", "env: RELEASER_WEBHOOK_URL"},
+	}
+	for _, c := range cases {
+		if c.got != c.want {
+			t.Errorf("got %q, want %q", c.got, c.want)
+		}
+		if src[c.srcKey] != c.wantSrc {
+			t.Errorf("src[%q] = %q, want %q", c.srcKey, src[c.srcKey], c.wantSrc)
+		}
+	}
+}
+
+func TestApplyEnvNotifyDoesNotOverwrite(t *testing.T) {
+	t.Setenv("SLACK_WEBHOOK_URL", "https://hooks.slack.example/env")
+
+	cfg := defaults()
+	cfg.Notify.SlackWebhookURL = "https://hooks.slack.example/config"
+	cfg.ApplyEnv()
+
+	if cfg.Notify.SlackWebhookURL != "https://hooks.slack.example/config" {
+		t.Errorf("SlackWebhookURL overwritten: got %q", cfg.Notify.SlackWebhookURL)
+	}
+}
+
 func TestLoadPartialOverride(t *testing.T) {
 	dir := t.TempDir()
 	// Only override tag_prefix — commit_message should keep its default

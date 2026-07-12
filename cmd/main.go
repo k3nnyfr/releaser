@@ -23,6 +23,7 @@ import (
 	"git.k3nny.fr/releaser/internal/pyproject"
 	"git.k3nny.fr/releaser/internal/node"
 	"git.k3nny.fr/releaser/internal/notes"
+	"git.k3nny.fr/releaser/internal/notify"
 	semver "git.k3nny.fr/releaser/internal/version"
 )
 
@@ -122,6 +123,29 @@ github:
 
   # Repository in "owner/repo" format.
   # repo: ""
+
+notify:
+  # Every field below is opt-in. A target is only used when its required
+  # fields are set (via this file, or the matching environment variable).
+  # Notification failures never fail the release — they're logged as warnings.
+
+  # Slack incoming webhook URL. Falls back to SLACK_WEBHOOK_URL.
+  # slack_webhook_url: ""
+
+  # Microsoft Teams incoming webhook URL. Falls back to TEAMS_WEBHOOK_URL.
+  # teams_webhook_url: ""
+
+  # Google Chat incoming webhook URL. Falls back to GOOGLE_CHAT_WEBHOOK_URL.
+  # google_chat_webhook_url: ""
+
+  # Telegram bot token and chat ID — both required. Fall back to
+  # TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.
+  # telegram_bot_token: ""
+  # telegram_chat_id: ""
+
+  # Generic webhook URL — POSTed a {"version": ..., "notes": ...} JSON body.
+  # Falls back to RELEASER_WEBHOOK_URL.
+  # webhook_url: ""
 `
 
 var (
@@ -265,6 +289,15 @@ type options struct {
 	releaseEnvFile  string
 }
 
+// maskedIfSet reports whether a secret-like config value is set, without
+// printing the value itself.
+func maskedIfSet(v string) string {
+	if v != "" {
+		return "(set)"
+	}
+	return "(not set)"
+}
+
 func printVerboseConfig(cfg config.Config, src config.Sources) {
 	logSection("configuration")
 	rows := []struct{ key, val string }{
@@ -320,20 +353,16 @@ func printVerboseConfig(cfg config.Config, src config.Sources) {
 			return strings.Join(paths, ", ")
 		}()},
 		{"gitlab.url", cfg.GitLab.URL},
-		{"gitlab.token", func() string {
-			if cfg.GitLab.Token != "" {
-				return "(set)"
-			}
-			return "(not set)"
-		}()},
+		{"gitlab.token", maskedIfSet(cfg.GitLab.Token)},
 		{"gitlab.project", cfg.GitLab.Project},
-		{"github.token", func() string {
-			if cfg.GitHub.Token != "" {
-				return "(set)"
-			}
-			return "(not set)"
-		}()},
+		{"github.token", maskedIfSet(cfg.GitHub.Token)},
 		{"github.repo", cfg.GitHub.Repo},
+		{"notify.slack_webhook_url", maskedIfSet(cfg.Notify.SlackWebhookURL)},
+		{"notify.teams_webhook_url", maskedIfSet(cfg.Notify.TeamsWebhookURL)},
+		{"notify.google_chat_webhook_url", maskedIfSet(cfg.Notify.GoogleChatWebhookURL)},
+		{"notify.telegram_bot_token", maskedIfSet(cfg.Notify.TelegramBotToken)},
+		{"notify.telegram_chat_id", maskedIfSet(cfg.Notify.TelegramChatID)},
+		{"notify.webhook_url", maskedIfSet(cfg.Notify.WebhookURL)},
 	}
 	for _, r := range rows {
 		source := src[r.key]
@@ -682,7 +711,10 @@ func run(o options) error {
 	}
 	logDone("pushed")
 
+	releaseNotes := notes.Generate(nextTag, messages)
+
 	if o.noRelease {
+		notifyRelease(cfg, nextTag, releaseNotes)
 		fmt.Printf("released %s\n", nextTag)
 		return nil
 	}
@@ -694,15 +726,31 @@ func run(o options) error {
 	}
 	if publisher == nil {
 		logWarn("no release provider configured — skipping release creation")
-		fmt.Printf("released %s\n", nextTag)
-		return nil
+	} else {
+		if err := publisher.CreateRelease(context.Background(), nextTag, releaseNotes); err != nil {
+			return fmt.Errorf("create release: %w", err)
+		}
+		logDone("release created: %s", nextTag)
 	}
 
-	releaseNotes := notes.Generate(nextTag, messages)
-	if err := publisher.CreateRelease(context.Background(), nextTag, releaseNotes); err != nil {
-		return fmt.Errorf("create release: %w", err)
-	}
-	logDone("release created: %s", nextTag)
+	notifyRelease(cfg, nextTag, releaseNotes)
 	fmt.Printf("released %s\n", nextTag)
 	return nil
+}
+
+// notifyRelease sends best-effort release notifications to every configured
+// target. Failures are logged as warnings, not errors — the release itself
+// already succeeded by the time this runs.
+func notifyRelease(cfg config.Config, tagName, releaseNotes string) {
+	notifyCfg := notify.Config{
+		SlackWebhookURL:      cfg.Notify.SlackWebhookURL,
+		TeamsWebhookURL:      cfg.Notify.TeamsWebhookURL,
+		GoogleChatWebhookURL: cfg.Notify.GoogleChatWebhookURL,
+		TelegramBotToken:     cfg.Notify.TelegramBotToken,
+		TelegramChatID:       cfg.Notify.TelegramChatID,
+		WebhookURL:           cfg.Notify.WebhookURL,
+	}
+	for _, err := range notify.SendAll(context.Background(), notifyCfg, notify.Message{Version: tagName, Notes: releaseNotes}) {
+		logWarn("notification failed: %v", err)
+	}
 }

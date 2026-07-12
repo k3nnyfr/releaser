@@ -2,7 +2,7 @@
 
 <img src="docs/static/images/releaser-logo-128.png" alt="releaser logo" width="128">
 
-![release](https://img.shields.io/badge/release-v1.7.1-blue.svg)
+![release](https://img.shields.io/badge/release-v1.8.0-blue.svg)
 
 A CI-friendly release automation tool for GitFlow workflows using Conventional Commits.
 
@@ -28,6 +28,7 @@ release/1.2 branch
 3. **Commit analysis** — parses Conventional Commits between last tag and HEAD
 4. **Version bump** — increments patch (the minor is owned by the branch)
 5. **Release** — updates `pom.xml` / `package.json` / `build.gradle`, commits, tags, creates GitLab or GitHub release
+6. **Notify** — best-effort notification to Slack, Microsoft Teams, Google Chat, Telegram, and/or a generic webhook
 
 ## Version bump rules
 
@@ -139,6 +140,14 @@ gitlab:
 github:
   token: ""                                          # env GITHUB_TOKEN (never commit this)
   repo: ""                                           # "owner/repo" format
+
+notify:                                              # opt-in — every field independent; failures are warnings, not errors
+  # slack_webhook_url: ""                             # or env SLACK_WEBHOOK_URL
+  # teams_webhook_url: ""                             # or env TEAMS_WEBHOOK_URL
+  # google_chat_webhook_url: ""                       # or env GOOGLE_CHAT_WEBHOOK_URL
+  # telegram_bot_token: ""                            # or env TELEGRAM_BOT_TOKEN (both required)
+  # telegram_chat_id: ""                              # or env TELEGRAM_CHAT_ID
+  # webhook_url: ""                                   # generic {"version","notes"} JSON POST; or env RELEASER_WEBHOOK_URL
 ```
 
 ### Environment variables
@@ -150,8 +159,13 @@ github:
 | `CI_PROJECT_ID`    | GitLab project identifier (numeric) |
 | `CI_PROJECT_PATH`  | GitLab project identifier (fallback) |
 | `GITHUB_TOKEN`     | GitHub API auth                   |
+| `SLACK_WEBHOOK_URL` | Slack release notification       |
+| `TEAMS_WEBHOOK_URL` | Microsoft Teams release notification |
+| `GOOGLE_CHAT_WEBHOOK_URL` | Google Chat release notification |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | Telegram release notification (both required) |
+| `RELEASER_WEBHOOK_URL` | Generic webhook release notification |
 
-When both `github.*` and `gitlab.*` are configured, GitHub takes precedence.
+When both `github.*` and `gitlab.*` are configured, GitHub takes precedence. All `notify.*` targets are independent — any combination may be configured at once, and a failed notification never fails the release.
 
 ## CI integration (GitLab CI example)
 
