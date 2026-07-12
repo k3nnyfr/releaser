@@ -24,6 +24,12 @@ tasks:
     generates:
       - "{{.BIN}}"
 
+  install:
+    desc: installs the binary in /usr/local/bin/
+    cmds:
+      - task: build
+      - sudo cp ./bin/releaser /usr/local/bin/releaser
+
   run:
     desc: Build and run releaser (pass args with -- e.g. task run -- --dry-run)
     deps: [build]
