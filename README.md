@@ -2,7 +2,7 @@
 
 <img src="docs/static/images/releaser-logo-128.png" alt="releaser logo" width="128">
 
-![release](https://img.shields.io/badge/release-v1.7.0-blue.svg)
+![release](https://img.shields.io/badge/release-v1.7.1-blue.svg)
 
 A CI-friendly release automation tool for GitFlow workflows using Conventional Commits.
 
@@ -169,3 +169,7 @@ release:
     reports:
       dotenv: release.env          # exposes NEXT_VERSION to downstream jobs
 ```
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE).

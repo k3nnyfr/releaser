@@ -126,4 +126,4 @@ tasks:
     desc: Build docs to docs/public/ (requires hugo)
     deps: [docs:setup]
     cmds:
-      - hugo --source docs --destination public --minify
+      - hugo --source docs --destination public --cleanDestinationDir --minify

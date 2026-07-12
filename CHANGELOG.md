@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.7.1] - 2026-07-12
+
+### Added
+
+- **Apache License 2.0** — `LICENSE` file added, Copyright 2026 K3nnyfr (alex@k3nny.fr); linked from a new `## License` section in README.md
+
+### Fixed
+
+- **`task docs:build` stale output** — Hugo build now passes `--cleanDestinationDir` so removed/renamed files don't linger in `docs/public`
+
+### Changed
+
+- **`.gitignore`** — `/.task/` (Task runner's local checksum cache) is now ignored
+
 ## [1.7.0] - 2026-07-12
 
 ### Added

@@ -10,3 +10,6 @@ coverage.html
 /docs/themes/
 /docs/public/
 
+# Task runner cache
+/.task/
+
