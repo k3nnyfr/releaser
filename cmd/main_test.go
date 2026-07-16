@@ -150,10 +150,31 @@ func TestRunDetachedHead(t *testing.T) {
 	// Detach HEAD
 	head, _ := repo.Head()
 	repo.Storer.SetReference(plumbing.NewHashReference(plumbing.HEAD, head.Hash()))
+	for _, name := range []string{"CI_COMMIT_BRANCH", "CI_COMMIT_REF_NAME", "GITHUB_REF_NAME"} {
+		t.Setenv(name, "")
+	}
 
 	err := execCmd(t, "--dry-run", "--repo", dir) // no --branch
 	if err == nil {
 		t.Fatal("expected error for detached HEAD without --branch")
+	}
+}
+
+func TestRunDetachedHeadCIBranchEnv(t *testing.T) {
+	repo, dir := setupRepo(t)
+	addFile(t, dir, "src.go", "// fix")
+	w, _ := repo.Worktree()
+	w.Add("src.go")
+	w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
+	head, _ := repo.Head()
+	repo.Storer.SetReference(plumbing.NewHashReference(plumbing.HEAD, head.Hash()))
+	for _, name := range []string{"CI_COMMIT_REF_NAME", "GITHUB_REF_NAME"} {
+		t.Setenv(name, "")
+	}
+	t.Setenv("CI_COMMIT_BRANCH", "release/1.2")
+
+	if err := execCmd(t, "--dry-run", "--repo", dir); err != nil {
+		t.Fatalf("detached HEAD with CI_COMMIT_BRANCH should succeed: %v", err)
 	}
 }
 
@@ -481,6 +502,42 @@ func TestRunNoRelease(t *testing.T) {
 	err := execCmd(t, "--no-release", "--branch", "release/1.2", "--repo", dir)
 	if err != nil {
 		t.Fatalf("--no-release: unexpected error: %v", err)
+	}
+}
+
+func TestRunCIDetachedHeadPush(t *testing.T) {
+	repo, dir := setupRepoWithRemote(t)
+	addFile(t, dir, "x.go", "// fix")
+	w, _ := repo.Worktree()
+	w.Add("x.go")
+	w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
+
+	// Simulate a GitLab CI checkout: detached HEAD, no local branch ref,
+	// branch name only available through the environment.
+	head, _ := repo.Head()
+	repo.Storer.SetReference(plumbing.NewHashReference(plumbing.HEAD, head.Hash()))
+	if err := repo.Storer.RemoveReference(plumbing.NewBranchReferenceName("master")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CI_COMMIT_BRANCH", "release/1.2")
+	t.Setenv("CI_COMMIT_REF_NAME", "")
+	t.Setenv("GITHUB_REF_NAME", "")
+	t.Setenv("GITLAB_TOKEN", "test-token")
+
+	if err := execCmd(t, "--no-release", "--repo", dir); err != nil {
+		t.Fatalf("CI-style detached run: %v", err)
+	}
+
+	remote, err := repo.Remote("origin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bare, err := gogit.PlainOpen(remote.Config().URLs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bare.Reference(plumbing.NewBranchReferenceName("release/1.2"), false); err != nil {
+		t.Errorf("release commit was not pushed to the remote branch: %v", err)
 	}
 }
 

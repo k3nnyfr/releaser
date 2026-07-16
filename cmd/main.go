@@ -245,7 +245,7 @@ func newRootCmd() *cobra.Command {
 	root.Flags().BoolVar(&noRelease, "no-release", false, "push commit and tag but skip creating the release")
 	root.Flags().BoolVar(&noCommit, "no-commit", false, "update files but do not commit, tag, or push")
 	root.Flags().BoolVar(&tagOnly, "tag-only", false, "tag HEAD without updating files (assumes version was already committed)")
-	root.Flags().StringVar(&branchOverride, "branch", "", "override branch name detection (required in detached HEAD)")
+	root.Flags().StringVar(&branchOverride, "branch", "", "override branch name detection (detached HEAD falls back to CI_COMMIT_BRANCH, CI_COMMIT_REF_NAME, GITHUB_REF_NAME)")
 	root.Flags().StringVar(&repoPath, "repo", ".", "path to git repository")
 	root.Flags().StringVar(&pomOverride, "pom", "", "override maven.pom_path from config")
 	root.Flags().StringVar(&gradleOverride, "gradle", "", "override gradle.build_file from config")

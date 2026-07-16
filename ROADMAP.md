@@ -8,7 +8,7 @@
 - [x] Commit range walker (last tag → HEAD, or full history on first release)
 - [x] Version bump calculator — returns plain `X.Y.Z` (prefix kept separate)
 - [x] `--dry-run` flag: print next version and exit
-- [x] `--branch` flag: override branch detection (detached HEAD in CI)
+- [x] `--branch` flag: override branch detection (detached HEAD in CI); detached HEAD auto-falls back to `CI_COMMIT_BRANCH` / `CI_COMMIT_REF_NAME` / `GITHUB_REF_NAME` — ✓ shipped v1.9.0, along with detached-HEAD push fix
 - [x] Exit code 2 when no releasable commits
 
 ## v0.2 — Config + Maven + local git ops ✅

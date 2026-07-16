@@ -41,9 +41,8 @@
     - git config user.name  "${GITLAB_USER_NAME:-Releaser CI}"
 
   script:
-    - releaser
-        --branch "$CI_COMMIT_BRANCH"
-        $RELEASER_EXTRA_ARGS
+    # No --branch needed: releaser falls back to CI_COMMIT_BRANCH on detached HEAD.
+    - releaser $RELEASER_EXTRA_ARGS
 
   artifacts:
     reports:

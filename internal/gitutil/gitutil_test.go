@@ -157,21 +157,95 @@ func TestCurrentBranch(t *testing.T) {
 	}
 }
 
-func TestCurrentBranchDetached(t *testing.T) {
-	repo, dir := newTestRepo(t)
-	addCommit(t, repo, dir, "chore: init", "initial")
+// clearCIBranchEnv unsets the CI branch variables so detached-HEAD tests
+// behave the same on a developer machine and inside an actual CI job.
+func clearCIBranchEnv(t *testing.T) {
+	t.Helper()
+	for _, name := range ciBranchEnvVars {
+		t.Setenv(name, "")
+	}
+}
 
-	// Detach HEAD by replacing the symbolic ref with a hash ref
+func detachHead(t *testing.T, repo *gogit.Repository) {
+	t.Helper()
 	head, _ := repo.Head()
 	detached := plumbing.NewHashReference(plumbing.HEAD, head.Hash())
 	if err := repo.Storer.SetReference(detached); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestCurrentBranchDetached(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	addCommit(t, repo, dir, "chore: init", "initial")
+	detachHead(t, repo)
+	clearCIBranchEnv(t)
 
 	_, err := CurrentBranch(repo)
 	if err == nil {
 		t.Error("expected error for detached HEAD")
 	}
+}
+
+func TestCurrentBranchDetachedCIFallback(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	addCommit(t, repo, dir, "chore: init", "initial")
+	detachHead(t, repo)
+
+	t.Run("CI_COMMIT_BRANCH wins over CI_COMMIT_REF_NAME", func(t *testing.T) {
+		clearCIBranchEnv(t)
+		t.Setenv("CI_COMMIT_BRANCH", "release/1.2")
+		t.Setenv("CI_COMMIT_REF_NAME", "release/9.9")
+
+		name, err := CurrentBranch(repo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if name != "release/1.2" {
+			t.Errorf("got %q, want release/1.2", name)
+		}
+	})
+
+	t.Run("CI_COMMIT_REF_NAME when CI_COMMIT_BRANCH unset", func(t *testing.T) {
+		clearCIBranchEnv(t)
+		t.Setenv("CI_COMMIT_REF_NAME", "release/3.4")
+
+		name, err := CurrentBranch(repo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if name != "release/3.4" {
+			t.Errorf("got %q, want release/3.4", name)
+		}
+	})
+
+	t.Run("GITHUB_REF_NAME as last resort", func(t *testing.T) {
+		clearCIBranchEnv(t)
+		t.Setenv("GITHUB_REF_NAME", "release/5.6")
+
+		name, err := CurrentBranch(repo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if name != "release/5.6" {
+			t.Errorf("got %q, want release/5.6", name)
+		}
+	})
+
+	t.Run("env ignored when HEAD is on a branch", func(t *testing.T) {
+		attached, attachedDir := newTestRepo(t)
+		addCommit(t, attached, attachedDir, "chore: init", "initial")
+		clearCIBranchEnv(t)
+		t.Setenv("CI_COMMIT_BRANCH", "release/9.9")
+
+		name, err := CurrentBranch(attached)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if name == "release/9.9" {
+			t.Error("CI env var must not override an attached HEAD")
+		}
+	})
 }
 
 // ── LatestTag ─────────────────────────────────────────────────────────────────
@@ -702,6 +776,64 @@ func TestPushWithBareRemote(t *testing.T) {
 	}
 }
 
+func TestPushDetachedHeadUpdatesRemoteBranch(t *testing.T) {
+	// Regression: in a CI checkout HEAD is detached and refs/heads/<branch>
+	// does not exist locally — go-git silently skipped the branch refspec and
+	// pushed only the tag. The push must carry HEAD's commit to the branch.
+	remoteDir := t.TempDir()
+	if _, err := gogit.PlainInit(remoteDir, true); err != nil {
+		t.Fatal(err)
+	}
+
+	repo, dir := newTestRepo(t)
+	hash := addCommit(t, repo, dir, "fix: something", "v1")
+	addTag(t, repo, "v1.2.1")
+	detachHead(t, repo)
+	if err := repo.Storer.RemoveReference(plumbing.NewBranchReferenceName("master")); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := repo.CreateRemote(&gitconfig.RemoteConfig{
+		Name: "origin",
+		URLs: []string{remoteDir},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Push(repo, "release/1.2", "v1.2.1", "dummy-token"); err != nil {
+		t.Fatalf("Push from detached HEAD failed: %v", err)
+	}
+
+	bare, err := gogit.PlainOpen(remoteDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, err := bare.Reference(plumbing.NewBranchReferenceName("release/1.2"), false)
+	if err != nil {
+		t.Fatalf("remote branch ref missing after push: %v", err)
+	}
+	if ref.Hash() != hash {
+		t.Errorf("remote branch at %s, want HEAD commit %s", ref.Hash(), hash)
+	}
+	if _, err := bare.Reference(plumbing.NewTagReferenceName("v1.2.1"), false); err != nil {
+		t.Errorf("remote tag ref missing after push: %v", err)
+	}
+}
+
+func TestPushWithGoGitUnbornHead(t *testing.T) {
+	// Repo with a remote but no commits: pushRefSpecs fails reading HEAD.
+	repo, _ := newTestRepo(t)
+	if _, err := repo.CreateRemote(&gitconfig.RemoteConfig{
+		Name: "origin",
+		URLs: []string{t.TempDir()},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := pushWithGoGit(repo, "master", "v1.0.0", "some-token"); err == nil {
+		t.Error("expected error for unborn HEAD")
+	}
+}
+
 // ── IsWorkingTreeClean: w.Status() error path ────────────────────────────────
 
 func TestIsWorkingTreeCleanCorruptIndex(t *testing.T) {
@@ -1037,6 +1169,26 @@ func TestPushWithGoGitNoRemote(t *testing.T) {
 	err := Push(repo, "master", "v1.0.0", "some-token")
 	if err == nil {
 		t.Error("expected error when no origin remote is configured")
+	}
+}
+
+func TestPushWithSSHAgentUnbornHead(t *testing.T) {
+	orig := newSSHAgentAuth
+	newSSHAgentAuth = func(user string) (*gitssh.PublicKeysCallback, error) {
+		return &gitssh.PublicKeysCallback{User: user}, nil
+	}
+	defer func() { newSSHAgentAuth = orig }()
+
+	// Repo with a remote but no commits: pushRefSpecs fails reading HEAD.
+	repo, _ := newTestRepo(t)
+	if _, err := repo.CreateRemote(&gitconfig.RemoteConfig{
+		Name: "origin",
+		URLs: []string{t.TempDir()},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := pushWithSSHAgent(repo, "master", "v1.0.0"); err == nil {
+		t.Error("expected error for unborn HEAD")
 	}
 }
 

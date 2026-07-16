@@ -2,7 +2,7 @@
 
 <img src="docs/static/images/releaser-logo-128.png" alt="releaser logo" width="128">
 
-![release](https://img.shields.io/badge/release-v1.8.0-blue.svg)
+![release](https://img.shields.io/badge/release-v1.9.0-blue.svg)
 
 A CI-friendly release automation tool for GitFlow workflows using Conventional Commits.
 
@@ -65,7 +65,8 @@ releaser --no-commit
 # … then commit manually and re-run:
 releaser --tag-only
 
-# Explicitly target a branch (useful in detached HEAD CI)
+# Explicitly target a branch (detached HEAD falls back to
+# CI_COMMIT_BRANCH / CI_COMMIT_REF_NAME / GITHUB_REF_NAME automatically)
 releaser --branch release/1.2
 
 # Write changelog to a custom file

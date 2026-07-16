@@ -95,7 +95,13 @@ jobs:
 
 ## Detached HEAD
 
-In CI environments where `git checkout` leaves the repository in detached HEAD state, pass the branch name explicitly:
+CI runners check out a commit SHA, leaving the repository in detached HEAD state. `releaser` detects this and falls back to the branch name from the CI environment, in order:
+
+1. `CI_COMMIT_BRANCH` (GitLab CI, branch pipelines)
+2. `CI_COMMIT_REF_NAME` (GitLab CI)
+3. `GITHUB_REF_NAME` (GitHub Actions)
+
+So on branch pipelines no extra configuration is needed. To override the detected name (or on runners that set none of these variables), pass it explicitly:
 
 ```yaml
 script:

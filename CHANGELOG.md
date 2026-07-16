@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.9.0] - 2026-07-16
+
+### Added
+
+- **CI branch detection fallback** — on detached HEAD (the normal state in CI checkouts), the branch name now falls back to `CI_COMMIT_BRANCH`, then `CI_COMMIT_REF_NAME` (GitLab CI), then `GITHUB_REF_NAME` (GitHub Actions) before erroring; `--branch` is no longer required in CI
+
+### Fixed
+
+- **Detached HEAD push** — the go-git push paths (token and SSH agent) used the refspec `refs/heads/<branch>`, a ref that never exists in a detached CI checkout; go-git silently skipped the branch update and pushed only the tag, so the release commit never reached the remote branch. Both paths now push HEAD's commit hash to the branch instead
+
+### Changed
+
+- **`.releaser.gitlab-ci.yml` template** — dropped the now-redundant `--branch "$CI_COMMIT_BRANCH"` from the job script
+
 ## [1.8.0] - 2026-07-12
 
 ### Added

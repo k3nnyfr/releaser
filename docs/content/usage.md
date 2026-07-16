@@ -35,7 +35,7 @@ releaser --verbose --dry-run
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--dry-run` | false | Print next version and exit without making any changes |
-| `--branch <name>` | auto-detected | Override branch name (useful in detached HEAD / CI) |
+| `--branch <name>` | auto-detected | Override branch name (detached HEAD falls back to `CI_COMMIT_BRANCH`, `CI_COMMIT_REF_NAME`, `GITHUB_REF_NAME`) |
 | `--branch-pattern <regex>` | `^(?:.*/)?release/(\d+)\.(\d+)$` | Override branch pattern (two capture groups: major, minor) |
 | `--tag-prefix <prefix>` | `""` | Prefix for version tags (e.g. `v` → `v1.2.3`) |
 | `--pom <path>` | `pom.xml` | Path to pom.xml relative to repo root |

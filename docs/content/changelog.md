@@ -3,6 +3,16 @@ title: Changelog
 weight: 50
 ---
 
+## v1.9.0 — 2026-07-16
+
+### Added
+
+- **CI branch detection fallback** — on detached HEAD, the branch name falls back to `CI_COMMIT_BRANCH`, then `CI_COMMIT_REF_NAME` (GitLab CI), then `GITHUB_REF_NAME` (GitHub Actions); `--branch` is no longer required in CI
+
+### Fixed
+
+- **Detached HEAD push** — go-git pushes silently skipped the branch update in detached CI checkouts (only the tag was pushed); the branch is now pushed from HEAD's commit hash
+
 ## v1.8.0 — 2026-07-12
 
 ### Added

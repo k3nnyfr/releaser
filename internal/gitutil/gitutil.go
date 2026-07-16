@@ -42,17 +42,31 @@ func IsWorkingTreeClean(repo *gogit.Repository) (bool, error) {
 	return true, nil
 }
 
+// ciBranchEnvVars are checked in order when HEAD is detached: CI runners
+// (GitLab, GitHub Actions) check out a commit SHA, so the branch name is only
+// available through the environment. CI_COMMIT_BRANCH is unset on tag and
+// merge-request pipelines, where CI_COMMIT_REF_NAME would hold a non-branch
+// ref — a name that fails branch pattern parsing with a clear error.
+var ciBranchEnvVars = []string{"CI_COMMIT_BRANCH", "CI_COMMIT_REF_NAME", "GITHUB_REF_NAME"}
+
 // CurrentBranch returns the short branch name from HEAD.
-// Returns an error when HEAD is detached (common in CI pipelines).
+// When HEAD is detached (common in CI pipelines), it falls back to the CI
+// environment variables that carry the branch name, and errors only when
+// none of them is set.
 func CurrentBranch(repo *gogit.Repository) (string, error) {
 	head, err := repo.Head()
 	if err != nil {
 		return "", fmt.Errorf("read HEAD: %w", err)
 	}
-	if !head.Name().IsBranch() {
-		return "", fmt.Errorf("HEAD is detached — use --branch to specify the release branch")
+	if head.Name().IsBranch() {
+		return head.Name().Short(), nil
 	}
-	return head.Name().Short(), nil
+	for _, name := range ciBranchEnvVars {
+		if v := os.Getenv(name); v != "" {
+			return v, nil
+		}
+	}
+	return "", fmt.Errorf("HEAD is detached and no CI branch variable is set (%s) — use --branch to specify the release branch", strings.Join(ciBranchEnvVars, ", "))
 }
 
 type tagCandidate struct {
@@ -269,6 +283,21 @@ func isSSHURL(u string) bool {
 	return strings.HasPrefix(u, "git@") || strings.HasPrefix(u, "ssh://")
 }
 
+// pushRefSpecs builds the refspecs for the release push. The branch source is
+// HEAD's commit hash rather than refs/heads/<branch>: in CI checkouts HEAD is
+// detached and the local branch ref does not exist, in which case go-git
+// silently skips the branch update and pushes only the tag.
+func pushRefSpecs(repo *gogit.Repository, branchName, tagName string) ([]gitconfig.RefSpec, error) {
+	head, err := repo.Head()
+	if err != nil {
+		return nil, fmt.Errorf("read HEAD: %w", err)
+	}
+	return []gitconfig.RefSpec{
+		gitconfig.RefSpec(fmt.Sprintf("%s:refs/heads/%s", head.Hash(), branchName)),
+		gitconfig.RefSpec(fmt.Sprintf("refs/tags/%s:refs/tags/%s", tagName, tagName)),
+	}, nil
+}
+
 func pushWithSSHAgent(repo *gogit.Repository, branchName, tagName string) error {
 	auth, err := newSSHAgentAuth("git")
 	if err != nil {
@@ -280,12 +309,14 @@ func pushWithSSHAgent(repo *gogit.Repository, branchName, tagName string) error 
 		return fmt.Errorf("remote origin not found: %w", err)
 	}
 
+	refSpecs, err := pushRefSpecs(repo, branchName, tagName)
+	if err != nil {
+		return err
+	}
+
 	opts := &gogit.PushOptions{
-		RefSpecs: []gitconfig.RefSpec{
-			gitconfig.RefSpec(fmt.Sprintf("refs/heads/%s:refs/heads/%s", branchName, branchName)),
-			gitconfig.RefSpec(fmt.Sprintf("refs/tags/%s:refs/tags/%s", tagName, tagName)),
-		},
-		Auth: auth,
+		RefSpecs: refSpecs,
+		Auth:     auth,
 	}
 
 	if err := remote.Push(opts); err != nil && !errors.Is(err, gogit.NoErrAlreadyUpToDate) {
@@ -300,11 +331,13 @@ func pushWithGoGit(repo *gogit.Repository, branchName, tagName, token string) er
 		return fmt.Errorf("remote origin not found: %w", err)
 	}
 
+	refSpecs, err := pushRefSpecs(repo, branchName, tagName)
+	if err != nil {
+		return err
+	}
+
 	opts := &gogit.PushOptions{
-		RefSpecs: []gitconfig.RefSpec{
-			gitconfig.RefSpec(fmt.Sprintf("refs/heads/%s:refs/heads/%s", branchName, branchName)),
-			gitconfig.RefSpec(fmt.Sprintf("refs/tags/%s:refs/tags/%s", tagName, tagName)),
-		},
+		RefSpecs: refSpecs,
 		Auth: &githttp.BasicAuth{
 			Username: "oauth2",
 			Password: token,
