@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.10.0] - 2026-07-16
+
+### Added
+
+- **`--check` preflight** — validates the release environment without releasing: branch resolution + pattern match, working tree state, tag discovery, shallow clone, remote origin URL parseability (the same parse the push performs), push auth method, configured version files, and release target; reports all problems at once and exits non-zero when any check fails
+- **Shallow clone detection** — when the clone is shallow and no previous release tag is found, releaser refuses to release instead of silently restarting versioning at `X.Y.0` (previous tags may sit beyond the fetch depth); a shallow clone whose history includes the latest tag proceeds normally
+- **`--allow-shallow` flag** — bypasses the shallow-clone guard for a genuine first release
+- **`.releaser:check` CI job template** — optional merge-request-pipeline preflight job in `.releaser.gitlab-ci.yml`
+
+### Changed
+
+- **CI examples** — the GitLab CI examples in README and docs now set `GIT_DEPTH: 0`, which the shallow-clone guard would otherwise surface as an error on first release
+
 ## [1.9.0] - 2026-07-16
 
 ### Added

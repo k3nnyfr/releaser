@@ -505,6 +505,241 @@ func TestRunNoRelease(t *testing.T) {
 	}
 }
 
+// ── --check preflight ─────────────────────────────────────────────────────────
+
+func TestRunCheckAllPass(t *testing.T) {
+	repo, dir := setupRepoWithRemote(t)
+	addFile(t, dir, "package.json", `{"name":"x","version":"1.2.0"}`)
+	addFile(t, dir, "build.gradle", "version = '1.2.0'\n")
+	addFile(t, dir, "pyproject.toml", "[project]\nname = \"x\"\nversion = \"1.2.0\"\n")
+	addFile(t, dir, ".releaser.yml", `node:
+  package_json: package.json
+gradle:
+  build_file: build.gradle
+python:
+  pyproject_toml: pyproject.toml
+`)
+	commitAll(t, repo, dir, "chore: add version files")
+	head, _ := repo.Head()
+	repo.CreateTag("1.2.0", head.Hash(), nil)
+
+	t.Setenv("CI_SERVER_URL", "https://gitlab.example.com")
+	t.Setenv("CI_PROJECT_ID", "42")
+	t.Setenv("GITLAB_TOKEN", "test-token")
+
+	if err := execCmd(t, "--check", "--branch", "release/1.2", "--repo", dir); err != nil {
+		t.Fatalf("--check should pass on a healthy repo: %v", err)
+	}
+}
+
+func TestRunCheckFailures(t *testing.T) {
+	// One run accumulating several failures: unresolvable branch (detached,
+	// no CI env), dirty tree + unreadable pom, missing configured version
+	// files, no remote, GitLab target without token.
+	repo, dir := setupRepo(t)
+	addFile(t, dir, ".releaser.yml", `node:
+  package_json: missing/package.json
+gradle:
+  build_file: missing/build.gradle
+python:
+  pyproject_toml: missing/pyproject.toml
+`)
+	commitAll(t, repo, dir, "chore: config")
+	head, _ := repo.Head()
+	repo.Storer.SetReference(plumbing.NewHashReference(plumbing.HEAD, head.Hash()))
+	for _, name := range []string{"CI_COMMIT_BRANCH", "CI_COMMIT_REF_NAME", "GITHUB_REF_NAME"} {
+		t.Setenv(name, "")
+	}
+	// Invalid pom left uncommitted: dirties the tree and fails ReadVersion.
+	addFile(t, dir, "pom.xml", "<not-a-pom/>")
+
+	t.Setenv("CI_SERVER_URL", "https://gitlab.example.com")
+	t.Setenv("CI_PROJECT_ID", "42")
+	t.Setenv("GITLAB_TOKEN", "")
+
+	err := execCmd(t, "--check", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected --check to fail")
+	}
+}
+
+func TestRunCheckMalformedRemoteURL(t *testing.T) {
+	// The shell-quoting accident from real life: quotes stored inside the URL.
+	repo, dir := setupRepo(t)
+	if _, err := repo.CreateRemote(&gitcfg.RemoteConfig{
+		Name: "origin",
+		URLs: []string{`"https://oauth2:${TOKEN}@example.com/group/proj.git"`},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	err := execCmd(t, "--check", "--branch", "release/1.2", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected --check to flag the malformed remote URL")
+	}
+}
+
+func TestRunCheckSSHRemoteFirstRelease(t *testing.T) {
+	repo, dir := setupRepo(t)
+	if _, err := repo.CreateRemote(&gitcfg.RemoteConfig{
+		Name: "origin",
+		URLs: []string{"git@example.com:group/proj.git"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// SSH auth line + "no previous tag (first release)" + no release provider
+	// + absent pom ("no pom.xml" note) — all informational, none failing.
+	if err := execCmd(t, "--check", "--pom", "missing.xml", "--branch", "release/1.2", "--repo", dir); err != nil {
+		t.Fatalf("--check on clean SSH-remote repo: %v", err)
+	}
+}
+
+func TestRunCheckShallowNoTag(t *testing.T) {
+	repo, dir := setupRepoWithRemote(t)
+	head, _ := repo.Head()
+	if err := os.WriteFile(filepath.Join(dir, ".git", "shallow"), []byte(head.Hash().String()+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := execCmd(t, "--check", "--branch", "release/1.2", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected --check to fail for shallow clone with no tag")
+	}
+
+	if err := execCmd(t, "--check", "--allow-shallow", "--branch", "release/1.2", "--repo", dir); err != nil {
+		t.Fatalf("--check with --allow-shallow: %v", err)
+	}
+}
+
+func TestRunCheckShallowReadError(t *testing.T) {
+	_, dir := setupRepoWithRemote(t)
+	if err := os.Mkdir(filepath.Join(dir, ".git", "shallow"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	err := execCmd(t, "--check", "--branch", "release/1.2", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected --check to fail when the shallow file is unreadable")
+	}
+}
+
+func TestRunCheckLatestTagFails(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("skipping: chmod restrictions do not apply when running as root")
+	}
+	_, dir := setupRepoWithRemote(t)
+	tagsDir := filepath.Join(dir, ".git", "refs", "tags")
+	os.Chmod(tagsDir, 0000)
+	defer os.Chmod(tagsDir, 0755)
+
+	err := execCmd(t, "--check", "--branch", "release/1.2", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected --check to fail when tag discovery fails")
+	}
+}
+
+func TestRunCheckWorktreeStatusFails(t *testing.T) {
+	_, dir := setupRepoWithRemote(t)
+	if err := os.WriteFile(filepath.Join(dir, ".git", "index"), []byte("not a valid git index"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := execCmd(t, "--check", "--branch", "release/1.2", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected --check to fail when the worktree status is unreadable")
+	}
+}
+
+func TestRunCheckNotARepo(t *testing.T) {
+	err := execCmd(t, "--check", "--branch", "release/1.2", "--repo", t.TempDir())
+	if err == nil {
+		t.Fatal("expected --check to fail outside a git repository")
+	}
+}
+
+func TestRunCheckPomStatError(t *testing.T) {
+	_, dir := setupRepoWithRemote(t)
+
+	// Null byte in the path: os.Stat fails with EINVAL, not ErrNotExist.
+	err := execCmd(t, "--check", "--pom", "p\x00om.xml", "--branch", "release/1.2", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected --check to fail on a pom path stat error")
+	}
+}
+
+func TestRunCheckGitHubTarget(t *testing.T) {
+	repo, dir := setupRepoWithRemote(t)
+	addFile(t, dir, ".releaser.yml", `github:
+  repo: owner/proj
+`)
+	commitAll(t, repo, dir, "chore: config")
+	t.Setenv("GITHUB_TOKEN", "gh-token")
+
+	if err := execCmd(t, "--check", "--branch", "release/1.2", "--repo", dir); err != nil {
+		t.Fatalf("--check with GitHub target: %v", err)
+	}
+}
+
+func TestRunShallowCloneNoTag(t *testing.T) {
+	repo, dir := setupRepo(t)
+	addFile(t, dir, "src.go", "// fix")
+	w, _ := repo.Worktree()
+	w.Add("src.go")
+	hash, _ := w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
+
+	// Mark the clone shallow: no tag + shallow must refuse to release.
+	if err := os.WriteFile(filepath.Join(dir, ".git", "shallow"), []byte(hash.String()+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := execCmd(t, "--dry-run", "--branch", "release/1.2", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected error for shallow clone with no release tag")
+	}
+
+	if err := execCmd(t, "--dry-run", "--allow-shallow", "--branch", "release/1.2", "--repo", dir); err != nil {
+		t.Fatalf("--allow-shallow should bypass the shallow guard: %v", err)
+	}
+}
+
+func TestRunShallowCheckFails(t *testing.T) {
+	repo, dir := setupRepo(t)
+	addFile(t, dir, "src.go", "// fix")
+	w, _ := repo.Worktree()
+	w.Add("src.go")
+	w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
+
+	// Directory where the shallow file is expected → IsShallow read error.
+	if err := os.Mkdir(filepath.Join(dir, ".git", "shallow"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	err := execCmd(t, "--dry-run", "--branch", "release/1.2", "--repo", dir)
+	if err == nil {
+		t.Fatal("expected error when the shallow check fails")
+	}
+}
+
+func TestRunShallowCloneWithTag(t *testing.T) {
+	// A tag within the shallow history pins the version — shallowness is fine.
+	repo, dir := setupRepo(t)
+	initialHead, _ := repo.Head()
+	repo.CreateTag("1.2.0", initialHead.Hash(), nil)
+	addFile(t, dir, "src.go", "// fix")
+	w, _ := repo.Worktree()
+	w.Add("src.go")
+	hash, _ := w.Commit("fix: patch something", &gogit.CommitOptions{Author: testSig()})
+
+	if err := os.WriteFile(filepath.Join(dir, ".git", "shallow"), []byte(hash.String()+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := execCmd(t, "--dry-run", "--branch", "release/1.2", "--repo", dir); err != nil {
+		t.Fatalf("shallow clone with a reachable tag should release: %v", err)
+	}
+}
+
 func TestRunCIDetachedHeadPush(t *testing.T) {
 	repo, dir := setupRepoWithRemote(t)
 	addFile(t, dir, "x.go", "// fix")

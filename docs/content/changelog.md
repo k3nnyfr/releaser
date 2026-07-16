@@ -3,6 +3,13 @@ title: Changelog
 weight: 50
 ---
 
+## v1.10.0 — 2026-07-16
+
+### Added
+
+- **`--check` preflight** — validates branch, working tree, shallow clone, remote URL, push auth, version files, and release target without releasing; reports all problems at once, non-zero exit on failure
+- **Shallow clone detection** — refuses to release when the clone is shallow and no previous tag is found (tags may be beyond the fetch depth); `--allow-shallow` bypasses the guard for a genuine first release
+
 ## v1.9.0 — 2026-07-16
 
 ### Added

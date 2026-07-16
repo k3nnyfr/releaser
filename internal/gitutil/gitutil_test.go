@@ -248,6 +248,48 @@ func TestCurrentBranchDetachedCIFallback(t *testing.T) {
 	})
 }
 
+// ── IsShallow ─────────────────────────────────────────────────────────────────
+
+func TestIsShallow(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	hash := addCommit(t, repo, dir, "chore: init", "initial")
+
+	shallow, err := IsShallow(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if shallow {
+		t.Error("full clone reported as shallow")
+	}
+
+	// A shallow clone is marked by .git/shallow listing the boundary commits.
+	shallowPath := filepath.Join(dir, ".git", "shallow")
+	if err := os.WriteFile(shallowPath, []byte(hash.String()+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	shallow, err = IsShallow(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !shallow {
+		t.Error("clone with .git/shallow not reported as shallow")
+	}
+}
+
+func TestIsShallowReadError(t *testing.T) {
+	repo, dir := newTestRepo(t)
+	addCommit(t, repo, dir, "chore: init", "initial")
+
+	// A directory where the shallow file is expected: Open succeeds but
+	// reading fails, exercising the Storer.Shallow error path.
+	if err := os.Mkdir(filepath.Join(dir, ".git", "shallow"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := IsShallow(repo); err == nil {
+		t.Error("expected error when shallow file is unreadable")
+	}
+}
+
 // ── LatestTag ─────────────────────────────────────────────────────────────────
 
 func TestLatestTagNoTags(t *testing.T) {

@@ -69,6 +69,18 @@ func CurrentBranch(repo *gogit.Repository) (string, error) {
 	return "", fmt.Errorf("HEAD is detached and no CI branch variable is set (%s) — use --branch to specify the release branch", strings.Join(ciBranchEnvVars, ", "))
 }
 
+// IsShallow reports whether the repository is a shallow clone. In shallow CI
+// checkouts (GitLab CI defaults to GIT_DEPTH: 20) release tags beyond the
+// fetch depth are invisible to LatestTag, which would silently restart
+// versioning at X.Y.0.
+func IsShallow(repo *gogit.Repository) (bool, error) {
+	roots, err := repo.Storer.Shallow()
+	if err != nil {
+		return false, err
+	}
+	return len(roots) > 0, nil
+}
+
 type tagCandidate struct {
 	name  string
 	patch int

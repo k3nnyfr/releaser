@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	gogit "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/spf13/cobra"
 
 	"git.k3nny.fr/releaser/internal/branch"
@@ -194,6 +195,8 @@ func newRootCmd() *cobra.Command {
 		noRelease       bool
 		noCommit        bool
 		tagOnly         bool
+		allowShallow    bool
+		check           bool
 		branchOverride  string
 		repoPath        string
 		pomOverride     string
@@ -233,6 +236,8 @@ func newRootCmd() *cobra.Command {
 				noRelease:      noRelease,
 				noCommit:       noCommit,
 				tagOnly:        tagOnly,
+				allowShallow:   allowShallow,
+				check:          check,
 				releaseEnvFile: releaseEnvFile,
 			})
 		},
@@ -245,6 +250,8 @@ func newRootCmd() *cobra.Command {
 	root.Flags().BoolVar(&noRelease, "no-release", false, "push commit and tag but skip creating the release")
 	root.Flags().BoolVar(&noCommit, "no-commit", false, "update files but do not commit, tag, or push")
 	root.Flags().BoolVar(&tagOnly, "tag-only", false, "tag HEAD without updating files (assumes version was already committed)")
+	root.Flags().BoolVar(&allowShallow, "allow-shallow", false, "proceed in a shallow clone even when no previous release tag is found")
+	root.Flags().BoolVar(&check, "check", false, "preflight: validate branch, working tree, remote, auth, version files, and release target without releasing")
 	root.Flags().StringVar(&branchOverride, "branch", "", "override branch name detection (detached HEAD falls back to CI_COMMIT_BRANCH, CI_COMMIT_REF_NAME, GITHUB_REF_NAME)")
 	root.Flags().StringVar(&repoPath, "repo", ".", "path to git repository")
 	root.Flags().StringVar(&pomOverride, "pom", "", "override maven.pom_path from config")
@@ -286,6 +293,8 @@ type options struct {
 	noRelease       bool
 	noCommit        bool
 	tagOnly         bool
+	allowShallow    bool
+	check           bool
 	releaseEnvFile  string
 }
 
@@ -454,6 +463,10 @@ func run(o options) error {
 		printVerboseConfig(cfg, src)
 	}
 
+	if o.check {
+		return runCheck(o, cfg, absRepo)
+	}
+
 	// --- Git ---
 	repo, err := gogit.PlainOpenWithOptions(absRepo, &gogit.PlainOpenOptions{DetectDotGit: true})
 	if err != nil {
@@ -497,6 +510,20 @@ func run(o options) error {
 	lastTag, currentPatch, err := gitutil.LatestTag(repo, info)
 	if err != nil {
 		return fmt.Errorf("find latest tag: %w", err)
+	}
+
+	// A shallow clone with no tag found is ambiguous: either a genuine first
+	// release, or the previous tags sit beyond the fetch depth — in which case
+	// releasing would silently restart at X.Y.0. When a tag was found the
+	// version math is correct regardless of shallowness.
+	if lastTag == "" && !o.allowShallow {
+		shallow, err := gitutil.IsShallow(repo)
+		if err != nil {
+			return fmt.Errorf("check shallow clone: %w", err)
+		}
+		if shallow {
+			return fmt.Errorf("no release tag found in a shallow clone — previous tags may be beyond the fetch depth; fetch full history (GIT_DEPTH: 0 in GitLab CI, fetch-depth: 0 in GitHub Actions, or git fetch --unshallow), or pass --allow-shallow if this is truly the first release")
+		}
 	}
 
 	// --- Commit range ---
@@ -735,6 +762,156 @@ func run(o options) error {
 
 	notifyRelease(cfg, nextTag, releaseNotes)
 	fmt.Printf("released %s\n", nextTag)
+	return nil
+}
+
+// runCheck is the --check preflight: it validates everything a release needs
+// without writing or pushing anything, and reports every problem at once
+// instead of stopping at the first. Purely informational lines use logStep;
+// validated checks use logDone; failures use logWarn and fail the run.
+func runCheck(o options, cfg config.Config, absRepo string) error {
+	logSection("check")
+
+	failed := 0
+	fail := func(format string, args ...any) {
+		logWarn(format, args...)
+		failed++
+	}
+
+	repo, err := gogit.PlainOpenWithOptions(absRepo, &gogit.PlainOpenOptions{DetectDotGit: true})
+	if err != nil {
+		return fmt.Errorf("open repository: %w", err)
+	}
+
+	// --- branch resolution + pattern match ---
+	var info branch.Info
+	branchOK := false
+	branchName := o.branchOverride
+	var branchErr error
+	if branchName == "" {
+		branchName, branchErr = gitutil.CurrentBranch(repo)
+	}
+	if branchErr == nil {
+		info, branchErr = branch.Parse(branchName, cfg.Git.BranchPattern)
+	}
+	if branchErr != nil {
+		fail("branch: %v", branchErr)
+	} else {
+		info.TagPrefix = cfg.Git.TagPrefix
+		branchOK = true
+		logDone("branch: %s → major=%d, minor=%d", branchName, info.Major, info.Minor)
+	}
+
+	// --- working tree ---
+	if clean, err := gitutil.IsWorkingTreeClean(repo); err != nil {
+		fail("working tree: %v", err)
+	} else if !clean {
+		fail("working tree has uncommitted changes")
+	} else {
+		logDone("working tree clean")
+	}
+
+	// --- tag discovery + shallow clone ---
+	if !branchOK {
+		logStep("tag discovery skipped (branch unresolved)")
+	} else if lastTag, _, err := gitutil.LatestTag(repo, info); err != nil {
+		fail("tag discovery: %v", err)
+	} else if lastTag != "" {
+		logDone("latest tag: %s", lastTag)
+	} else if shallow, err := gitutil.IsShallow(repo); err != nil {
+		fail("shallow check: %v", err)
+	} else if shallow && !o.allowShallow {
+		fail("no release tag found in a shallow clone — previous tags may be beyond the fetch depth; fetch full history or pass --allow-shallow")
+	} else if shallow {
+		logStep("no previous tag in a shallow clone (--allow-shallow)")
+	} else {
+		logDone("no previous tag (first release)")
+	}
+
+	// --- remote + push auth ---
+	if remote, err := repo.Remote("origin"); err != nil {
+		fail("remote origin: %v", err)
+	} else {
+		url := remote.Config().URLs[0]
+		// The same parse the push transport performs — catches malformed
+		// remote URLs (e.g. shell quoting accidents in CI set-url lines).
+		if _, err := transport.NewEndpoint(url); err != nil {
+			fail("remote origin URL: %v", err)
+		} else {
+			logDone("remote origin: %s", url)
+		}
+		switch {
+		case cfg.GitLab.Token != "":
+			logStep("push auth: HTTPS token (oauth2)")
+		case strings.HasPrefix(url, "git@") || strings.HasPrefix(url, "ssh://"):
+			logStep("push auth: SSH agent, git CLI fallback")
+		default:
+			logStep("push auth: git CLI (credential helpers, netrc)")
+		}
+	}
+
+	// --- version files ---
+	anyPom := false
+	for _, relPomPath := range cfg.Maven.EffectivePomPaths() {
+		pomPath := filepath.Join(absRepo, relPomPath)
+		_, statErr := os.Stat(pomPath)
+		if errors.Is(statErr, os.ErrNotExist) {
+			continue
+		}
+		if statErr != nil {
+			fail("%s: %v", relPomPath, statErr)
+			continue
+		}
+		anyPom = true
+		if v, err := maven.ReadVersion(pomPath); err != nil {
+			fail("%s: %v", relPomPath, err)
+		} else {
+			logDone("%s: version %s", relPomPath, v)
+		}
+	}
+	if !anyPom {
+		logStep("no pom.xml — Maven version bump will be skipped")
+	}
+	for _, relPkgPath := range cfg.Node.EffectivePaths() {
+		if v, err := node.ReadVersion(filepath.Join(absRepo, relPkgPath)); err != nil {
+			fail("%s: %v", relPkgPath, err)
+		} else {
+			logDone("%s: version %s", relPkgPath, v)
+		}
+	}
+	for _, relGradlePath := range cfg.Gradle.EffectiveBuildFiles() {
+		if v, err := gradle.ReadVersion(filepath.Join(absRepo, relGradlePath)); err != nil {
+			fail("%s: %v", relGradlePath, err)
+		} else {
+			logDone("%s: version %s", relGradlePath, v)
+		}
+	}
+	for _, relPyprojectPath := range cfg.Python.EffectivePaths() {
+		if v, err := pyproject.ReadVersion(filepath.Join(absRepo, relPyprojectPath)); err != nil {
+			fail("%s: %v", relPyprojectPath, err)
+		} else {
+			logDone("%s: version %s", relPyprojectPath, v)
+		}
+	}
+
+	// --- release target (mirrors buildPublisher precedence) ---
+	switch {
+	case cfg.GitHub.Token != "" && cfg.GitHub.Repo != "":
+		logDone("release target: GitHub (%s)", cfg.GitHub.Repo)
+	case cfg.GitLab.URL != "" && cfg.GitLab.Project != "":
+		if cfg.GitLab.Token == "" {
+			fail("release target: GitLab configured but GITLAB_TOKEN not set")
+		} else {
+			logDone("release target: GitLab (%s, project %s)", cfg.GitLab.URL, cfg.GitLab.Project)
+		}
+	default:
+		logStep("no release provider configured — release creation will be skipped")
+	}
+
+	if failed > 0 {
+		return fmt.Errorf("%d check(s) failed", failed)
+	}
+	fmt.Println("all checks passed")
 	return nil
 }
 

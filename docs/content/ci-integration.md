@@ -29,6 +29,7 @@ release:
     - if: $CI_COMMIT_BRANCH =~ /^release\/.+$/
   variables:
     GITLAB_TOKEN: $RELEASE_TOKEN
+    GIT_DEPTH: 0                   # full history — shallow clones hide previous release tags
   script:
     - releaser
   artifacts:
@@ -92,6 +93,32 @@ jobs:
 {{< hint warning >}}
 `fetch-depth: 0` is required. A shallow clone (`--depth 1`) hides the previous tag, causing `releaser` to treat every commit as the first release.
 {{< /hint >}}
+
+## Preflight checks
+
+`releaser --check` validates the release environment without releasing anything: branch resolution and pattern match, working tree state, shallow clone, remote URL parseability (the same parse the push performs — it catches shell-quoting accidents in `set-url` lines), which push auth would be used, configured version files, and the release target. All problems are reported at once, and the exit code is non-zero if any check fails.
+
+Note the split with `--dry-run`: dry-run answers *"what version would be released?"* (it analyzes commits and computes the bump); `--check` answers *"will the release plumbing work?"* (everything dry-run never touches). Run `--check` in merge-request pipelines to catch broken CI configuration before it blocks a real release:
+
+```yaml
+release:check:
+  stage: test
+  image: registry.example.com/releaser:latest
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  variables:
+    GIT_DEPTH: 0
+  script:
+    - releaser --check --branch "release/0.0"   # any pattern-matching name works for validation
+```
+
+## Shallow clones
+
+GitLab CI checks out a shallow clone by default (`GIT_DEPTH: 20`), and shallow clones hide any release tag beyond the fetch depth — tag discovery would silently restart versioning at `X.Y.0`. `releaser` detects this: when the clone is shallow **and** no previous release tag is found, it refuses to release and asks for full history.
+
+Fix it by fetching full history (`GIT_DEPTH: 0` in GitLab CI, `fetch-depth: 0` in GitHub Actions, or `git fetch --unshallow`). If the project genuinely has no release tag yet, pass `--allow-shallow` to release anyway.
+
+A shallow clone whose history does include the latest release tag is fine — the version calculation is unaffected, and `releaser` proceeds normally.
 
 ## Detached HEAD
 

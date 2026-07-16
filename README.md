@@ -2,7 +2,7 @@
 
 <img src="docs/static/images/releaser-logo-128.png" alt="releaser logo" width="128">
 
-![release](https://img.shields.io/badge/release-v1.9.0-blue.svg)
+![release](https://img.shields.io/badge/release-v1.10.0-blue.svg)
 
 A CI-friendly release automation tool for GitFlow workflows using Conventional Commits.
 
@@ -69,11 +69,18 @@ releaser --tag-only
 # CI_COMMIT_BRANCH / CI_COMMIT_REF_NAME / GITHUB_REF_NAME automatically)
 releaser --branch release/1.2
 
+# First release from a shallow clone (no previous tag exists yet)
+releaser --allow-shallow
+
 # Write changelog to a custom file
 releaser --changelog-file CHANGES.md
 
 # Show configuration sources, commit list, and version decision
 releaser --verbose --dry-run
+
+# Preflight: validate branch, working tree, remote URL, push auth,
+# version files, and release target — reports all problems at once
+releaser --check
 
 # Target a specific pom.xml
 releaser --pom path/to/pom.xml
@@ -178,6 +185,7 @@ release:
     - if: $CI_COMMIT_BRANCH =~ /^release\/.+$/
   variables:
     GITLAB_TOKEN: $RELEASE_TOKEN   # project/group CI variable with api + write_repository scope
+    GIT_DEPTH: 0                   # full history — shallow clones hide previous release tags
   script:
     - releaser
   artifacts:

@@ -20,6 +20,19 @@
 #                   api + write_repository
 #                   (do NOT use CI_JOB_TOKEN — it cannot push tags back)
 
+# Optional preflight job for merge-request pipelines: validates the release
+# environment (branch pattern, remote URL, auth, version files, release
+# target) without releasing anything.
+.releaser:check:
+  stage: test
+  image: ${RELEASER_IMAGE:-registry.example.com/releaser:latest}
+  variables:
+    GIT_DEPTH: 0
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - releaser --check --branch "release/0.0"
+
 .releaser:release:
   stage: release
   image: ${RELEASER_IMAGE:-registry.example.com/releaser:latest}

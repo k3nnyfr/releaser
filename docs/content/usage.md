@@ -35,6 +35,7 @@ releaser --verbose --dry-run
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--dry-run` | false | Print next version and exit without making any changes |
+| `--check` | false | Preflight: validate branch, working tree, remote URL, push auth, version files, and release target without releasing |
 | `--branch <name>` | auto-detected | Override branch name (detached HEAD falls back to `CI_COMMIT_BRANCH`, `CI_COMMIT_REF_NAME`, `GITHUB_REF_NAME`) |
 | `--branch-pattern <regex>` | `^(?:.*/)?release/(\d+)\.(\d+)$` | Override branch pattern (two capture groups: major, minor) |
 | `--tag-prefix <prefix>` | `""` | Prefix for version tags (e.g. `v` → `v1.2.3`) |
@@ -43,6 +44,7 @@ releaser --verbose --dry-run
 | `--pyproject <path>` | — | Override `python.pyproject_toml` from config |
 | `--changelog-file <path>` | `CHANGELOG.md` | Path to changelog file |
 | `--release-env-file <path>` | `release.env` | Path for dotenv artifact; pass `""` to disable |
+| `--allow-shallow` | false | Proceed in a shallow clone even when no previous release tag is found |
 | `--no-commit` | false | Update version files but stop before committing |
 | `--no-push` | false | Commit and tag locally, skip push and release |
 | `--no-release` | false | Push branch and tag but skip release creation |
