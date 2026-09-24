@@ -1,0 +1,57 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      # Artifact names, platforms and flags must stay identical to
+      # .gitea/workflows/release.yml so both forges publish the same files.
+      - name: Build binaries
+        env:
+          TAG: ${{ github.ref_name }}
+          CGO_ENABLED: "0"
+        run: |
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            goos="${target%/*}"
+            goarch="${target#*/}"
+            ext=""
+            if [ "$goos" = "windows" ]; then ext=".exe"; fi
+            GOOS="$goos" GOARCH="$goarch" go build -trimpath \
+              -ldflags="-s -w -X main.version=${TAG}" \
+              -o "releaser-${TAG}-${goos}-${goarch}${ext}" \
+              ./cmd/...
+          done
+
+      - name: Create release and upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" \
+            --notes "" \
+            --verify-tag \
+            "releaser-${TAG}-linux-amd64" \
+            "releaser-${TAG}-linux-arm64" \
+            "releaser-${TAG}-darwin-amd64" \
+            "releaser-${TAG}-darwin-arm64" \
+            "releaser-${TAG}-windows-amd64.exe"

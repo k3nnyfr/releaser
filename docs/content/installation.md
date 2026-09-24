@@ -5,16 +5,23 @@ weight: 10
 
 ## Pre-built binaries
 
-Download the latest release for your platform from the [Releases page](https://git.k3nny.fr/k3nny/releaser/releases).
+Download the latest release for your platform from either forge — both publish identical binaries for every tag:
+
+- [git.k3nny.fr releases](https://git.k3nny.fr/k3nny/releaser/releases) (primary)
+- [GitHub releases](https://github.com/k3nnyfr/releaser/releases) (mirror)
 
 ```bash
 # Linux (amd64)
-curl -sSL https://git.k3nny.fr/k3nny/releaser/releases/download/v1.5.0/releaser-v1.5.0-linux-amd64 \
+curl -sSL https://git.k3nny.fr/k3nny/releaser/releases/download/v1.10.0/releaser-v1.10.0-linux-amd64 \
   -o /usr/local/bin/releaser
 chmod +x /usr/local/bin/releaser
+
+# Same binary from the GitHub mirror
+curl -sSL https://github.com/k3nnyfr/releaser/releases/download/v1.10.0/releaser-v1.10.0-linux-amd64 \
+  -o /usr/local/bin/releaser
 ```
 
-Available platforms: `linux-amd64`, `linux-arm64`, `darwin-amd64`, `darwin-arm64`, `windows-amd64.exe`.
+Available platforms: `linux-amd64`, `linux-arm64`, `darwin-amd64`, `darwin-arm64`, `windows-amd64.exe`. Asset names embed the tag (`releaser-<tag>-<os>-<arch>`), so download URLs must name an explicit version.
 
 ## Docker
 
@@ -30,10 +37,10 @@ docker run --rm \
 
 ## Build from source
 
-Requires Go 1.21+.
+Requires the Go version declared in `go.mod` (1.26+).
 
 ```bash
-git clone https://git.k3nny.fr/k3nny/releaser/releaser.git
+git clone https://git.k3nny.fr/k3nny/releaser.git   # or https://github.com/k3nnyfr/releaser.git
 cd releaser
 go build -o /usr/local/bin/releaser ./cmd
 ```

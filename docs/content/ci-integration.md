@@ -80,14 +80,36 @@ jobs:
         with:
           fetch-depth: 0          # full history needed for tag discovery
 
+      - name: Install releaser
+        shell: bash
+        env:
+          RELEASER_VERSION: v1.10.0
+          # On Gitea Actions, https://git.k3nny.fr/k3nny/releaser/releases/download works too.
+          RELEASER_BASE_URL: https://github.com/k3nnyfr/releaser/releases/download
+        run: |
+          case "$RUNNER_OS" in
+            Linux)   os=linux ;;
+            macOS)   os=darwin ;;
+            Windows) os=windows ;;
+            *) echo "unsupported RUNNER_OS: $RUNNER_OS" >&2; exit 1 ;;
+          esac
+          case "$RUNNER_ARCH" in
+            X64)   arch=amd64 ;;
+            ARM64) arch=arm64 ;;
+            *) echo "unsupported RUNNER_ARCH: $RUNNER_ARCH" >&2; exit 1 ;;
+          esac
+          ext=""
+          if [ "$os" = "windows" ]; then ext=".exe"; fi
+          mkdir -p "$RUNNER_TEMP/releaser"
+          curl -fsSL "$RELEASER_BASE_URL/$RELEASER_VERSION/releaser-$RELEASER_VERSION-$os-$arch$ext" \
+            -o "$RUNNER_TEMP/releaser/releaser$ext"
+          chmod +x "$RUNNER_TEMP/releaser/releaser$ext"
+          echo "$RUNNER_TEMP/releaser" >> "$GITHUB_PATH"
+
       - name: Run releaser
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          curl -sSL https://git.k3nny.fr/k3nny/releaser/releases/latest/download/releaser-linux-amd64 \
-            -o /usr/local/bin/releaser
-          chmod +x /usr/local/bin/releaser
-          releaser
+        run: releaser
 ```
 
 {{< hint warning >}}

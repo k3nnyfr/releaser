@@ -6,7 +6,7 @@
 
 A CI-friendly release automation tool for GitFlow workflows using Conventional Commits.
 
-**[Documentation](https://releaser.k3nny.fr)** · **[Repository](https://git.k3nny.fr/k3nny/releaser)**
+**[Documentation](https://releaser.k3nny.fr)** · **[Repository](https://git.k3nny.fr/k3nny/releaser)** · **[GitHub mirror](https://github.com/k3nnyfr/releaser)**
 
 ## Problem
 
@@ -41,6 +41,21 @@ By default, all releasable commits bump the **patch** component (minor is pinned
 | `feat!:` / `BREAKING CHANGE` | patch | `breaking: "minor"` to bump minor  |
 | `chore:`, `docs:`, etc. | none   | —                                       |
 | unparseable msg  | none    | non-strict mode: silently ignored              |
+
+## Installation
+
+Pre-built binaries (`linux-amd64`, `linux-arm64`, `darwin-amd64`, `darwin-arm64`, `windows-amd64.exe`) are published for every tag on both forges:
+
+- **[git.k3nny.fr releases](https://git.k3nny.fr/k3nny/releaser/releases)** — primary repository
+- **[GitHub releases](https://github.com/k3nnyfr/releaser/releases)** — read-only mirror of git.k3nny.fr; issues and contributions go to the primary repository
+
+```bash
+curl -sSL https://github.com/k3nnyfr/releaser/releases/download/v1.10.0/releaser-v1.10.0-linux-amd64 \
+  -o /usr/local/bin/releaser
+chmod +x /usr/local/bin/releaser
+```
+
+See the [installation docs](https://releaser.k3nny.fr/installation/) for Docker and building from source.
 
 ## Usage
 

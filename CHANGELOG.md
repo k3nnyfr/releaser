@@ -3,6 +3,23 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **GitHub mirror** — the repository is mirrored from git.k3nny.fr (still the primary source) to [github.com/k3nnyfr/releaser](https://github.com/k3nnyfr/releaser)
+- **GitHub Actions workflows** — `.github/workflows/ci.yml` runs the same vet / staticcheck / test / build checks as the Gitea CI; `.github/workflows/release.yml` builds the same five binaries (same names, same `-trimpath -ldflags="-s -w -X main.version=<tag>"` flags) on `v*` tags and publishes them with `gh release create`, so every new release is available on both forges
+
+### Changed
+
+- **Installation docs** — README gains an Installation section; `docs/content/installation.md` lists both release pages and shows the GitHub download URL
+- **GitHub Actions example** — `docs/content/ci-integration.md` now downloads the binary from GitHub releases with an explicit version, picking the platform from `RUNNER_OS` / `RUNNER_ARCH`
+
+### Fixed
+
+- **Broken download URL in the GitHub Actions example** — `releases/latest/download/releaser-linux-amd64` never matched a real asset (asset names embed the tag)
+- **Build-from-source instructions** — clone URL was `…/k3nny/releaser/releaser.git` (404); stated Go requirement was 1.21+ while `go.mod` requires 1.26
+
 ## [1.10.0] - 2026-07-16
 
 ### Added

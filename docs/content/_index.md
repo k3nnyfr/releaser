@@ -4,7 +4,7 @@ title: releaser
 
 **CI-friendly release automation for GitFlow workflows using Conventional Commits.**
 
-[Source code](https://git.k3nny.fr/k3nny/releaser) · [Releases](https://git.k3nny.fr/k3nny/releaser/releases)
+[Source code](https://git.k3nny.fr/k3nny/releaser) · [Releases](https://git.k3nny.fr/k3nny/releaser/releases) · [GitHub mirror](https://github.com/k3nnyfr/releaser)
 
 Standard tools like `semantic-release` are designed for trunk-based development. In a GitFlow setup with versioned release branches (`release/1.1`, `release/1.2`), they either fail to respect the branch's version range or require brittle configuration.
 
