@@ -22,10 +22,14 @@ jobs:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SERVER_URL: ${{ github.server_url }}
           REPO: ${{ github.repository }}
-          REF: ${{ github.ref_name }}
+          REF: ${{ github.ref }}
+        # Ref complète plutôt que nom de branche : sur une pull request, c'est
+        # refs/pull/N/head, qu'un « clone --branch » ne sait pas récupérer.
         run: |
-          git clone --depth 1 --branch "$REF" \
-            "$(echo "$SERVER_URL" | sed "s|https://|https://oauth2:${TOKEN}@|")/${REPO}.git" .
+          git init -q .
+          git remote add origin "$(echo "$SERVER_URL" | sed "s|https://|https://oauth2:${TOKEN}@|")/${REPO}.git"
+          git fetch -q --depth 1 origin "$REF"
+          git checkout -q FETCH_HEAD
 
       - name: vet
         run: go vet ./...
