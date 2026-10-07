@@ -11,7 +11,7 @@ jobs:
     name: vet, staticcheck, test, build
     runs-on: ubuntu-latest
     container:
-      image: golang:1.26-alpine
+      image: golang:1.27-alpine
 
     steps:
       - name: Install tools
