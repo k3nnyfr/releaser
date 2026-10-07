@@ -73,6 +73,8 @@ jobs:
           git checkout -q -B main "$SHA"
 
       - name: Next version
+        env:
+          SERVER_URL: ${{ github.server_url }}
         run: |
           mkdir -p /tmp/sr
           npm install --silent --no-save --no-audit --no-fund --prefix /tmp/sr semantic-release@25.0.9
@@ -81,8 +83,6 @@ jobs:
           import semanticRelease from 'semantic-release';
 
           const result = await semanticRelease({
-            // URL publique pour les liens des notes ; l'origin du job vise http://gitea:3000.
-            repositoryUrl: `https://git.k3nny.fr/${process.env.GITHUB_REPOSITORY}.git`,
             branches: ['main'],
             dryRun: true,
             ci: false,
@@ -95,6 +95,8 @@ jobs:
           EOF
           node /tmp/sr/version.mjs
           if [ -f /tmp/sr/tag ]; then
+            # Les liens des notes suivent l'origin, http://gitea:3000 : on les ramène à l'URL publique.
+            sed -i "s|$SERVER_URL/|https://git.k3nny.fr/|g" /tmp/sr/notes.md
             echo "TAG=$(cat /tmp/sr/tag)" >> "$GITHUB_ENV"
           else
             echo "Aucun commit à publier depuis le dernier tag."
