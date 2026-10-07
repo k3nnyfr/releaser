@@ -42,3 +42,98 @@ jobs:
 
       - name: build
         run: go build -o /dev/null ./cmd/...
+
+  # Sur main, une fois la CI verte : semantic-release calcule la version à partir
+  # des Conventional Commits depuis le dernier tag, puis la release est créée par
+  # l'API Gitea, qui pose le tag elle-même. Un tag poussé avec le jeton du job ne
+  # déclencherait aucun workflow, d'où ce job plutôt qu'un déclenchement sur tag.
+  release:
+    name: release
+    needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    container:
+      image: golang:1.27-alpine
+
+    steps:
+      - name: Install tools
+        run: apk add --no-cache curl git jq nodejs npm
+
+      - name: Checkout
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SERVER_URL: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        # Historique complet et tags : semantic-release part du dernier tag.
+        run: |
+          git init -q .
+          git remote add origin "$(echo "$SERVER_URL" | sed -E "s|^(https?://)|\1oauth2:${TOKEN}@|")/${REPO}.git"
+          git fetch -q --tags origin main
+          git checkout -q -B main "$SHA"
+
+      - name: Next version
+        run: |
+          mkdir -p /tmp/sr
+          npm install --silent --no-save --no-audit --no-fund --prefix /tmp/sr semantic-release@25.0.9
+          cat > /tmp/sr/version.mjs <<'EOF'
+          import { writeFileSync } from 'node:fs';
+          import semanticRelease from 'semantic-release';
+
+          const result = await semanticRelease({
+            branches: ['main'],
+            dryRun: true,
+            ci: false,
+            plugins: ['@semantic-release/commit-analyzer', '@semantic-release/release-notes-generator'],
+          });
+          if (result && result.nextRelease) {
+            writeFileSync('/tmp/sr/tag', result.nextRelease.gitTag);
+            writeFileSync('/tmp/sr/notes.md', result.nextRelease.notes);
+          }
+          EOF
+          node /tmp/sr/version.mjs
+          if [ -f /tmp/sr/tag ]; then
+            echo "TAG=$(cat /tmp/sr/tag)" >> "$GITHUB_ENV"
+          else
+            echo "Aucun commit à publier depuis le dernier tag."
+          fi
+
+      - name: Build
+        if: env.TAG != ''
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            os=${target%/*}; arch=${target#*/}
+            ext=; [ "$os" = windows ] && ext=.exe
+            GOOS=$os GOARCH=$arch go build -trimpath \
+              -ldflags="-s -w -X main.version=$TAG" \
+              -o "dist/releaser-$TAG-$os-$arch$ext" \
+              ./cmd/...
+          done
+
+      - name: Create release and upload assets
+        if: env.TAG != ''
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API_URL: ${{ github.api_url }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -eu
+          release_id=$(jq -n --arg tag "$TAG" --arg sha "$SHA" --rawfile body /tmp/sr/notes.md \
+              '{tag_name: $tag, target_commitish: $sha, name: $tag, body: $body, draft: false, prerelease: false}' \
+            | curl -sf -X POST \
+              -H "Authorization: token $TOKEN" \
+              -H "Content-Type: application/json" \
+              "$API_URL/repos/$REPO/releases" -d @- \
+            | jq -r .id)
+
+          for file in dist/*; do
+            curl -sf -X POST \
+              -H "Authorization: token $TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              "$API_URL/repos/$REPO/releases/$release_id/assets?name=${file#dist/}" \
+              --data-binary "@$file" > /dev/null
+            echo "uploaded: ${file#dist/}"
+          done
