@@ -81,6 +81,8 @@ jobs:
           import semanticRelease from 'semantic-release';
 
           const result = await semanticRelease({
+            // URL publique pour les liens des notes ; l'origin du job vise http://gitea:3000.
+            repositoryUrl: `https://git.k3nny.fr/${process.env.GITHUB_REPOSITORY}.git`,
             branches: ['main'],
             dryRun: true,
             ci: false,
