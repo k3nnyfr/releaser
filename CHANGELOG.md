@@ -17,6 +17,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Invalid UTF-8 in `--verbose` output** — commit headers longer than 70 characters were truncated on bytes, splitting accented characters or emoji and emitting invalid UTF-8 on stderr (crashing strict decoders such as Python `subprocess` in text mode); truncation now operates on runes
 - **Broken download URL in the GitHub Actions example** — `releases/latest/download/releaser-linux-amd64` never matched a real asset (asset names embed the tag)
 - **Build-from-source instructions** — clone URL was `…/k3nny/releaser/releaser.git` (404); stated Go requirement was 1.21+ while `go.mod` requires 1.26
 

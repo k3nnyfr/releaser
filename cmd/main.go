@@ -558,8 +558,10 @@ func run(o options) error {
 		}
 		for i, msg := range messages {
 			first := strings.SplitN(strings.TrimSpace(msg), "\n", 2)[0]
-			if len(first) > 70 {
-				first = first[:67] + "..."
+			// Truncate on runes: byte slicing would split multi-byte UTF-8
+			// (accents, emoji) and emit invalid UTF-8 that breaks strict decoders.
+			if r := []rune(first); len(r) > 70 {
+				first = string(r[:67]) + "..."
 			}
 			t := types[i]
 			typeLabel := fmt.Sprintf("%-9s", t.String())
