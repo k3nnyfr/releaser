@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	gogit "github.com/go-git/go-git/v5"
 	gitcfg "github.com/go-git/go-git/v5/config"
@@ -1404,6 +1405,38 @@ func TestRunVerboseBreakingAndFix(t *testing.T) {
 
 	if err != nil {
 		t.Fatalf("verbose breaking+fix: unexpected error: %v", err)
+	}
+}
+
+func TestRunVerboseTruncationKeepsValidUTF8(t *testing.T) {
+	repo, dir := setupRepo(t)
+	head, _ := repo.Head()
+	repo.CreateTag("1.2.0", head.Hash(), nil)
+
+	w, _ := repo.Worktree()
+	addFile(t, dir, "a.go", "a")
+	w.Add("a.go")
+	// Accented chars and emoji straddle the 67-byte cut point.
+	w.Commit("fix: corrigé la génération des notes éàçùéàçùéàçùéàçùéàçù 🚀🚀🚀🚀🚀🚀🚀🚀 suite très longue", &gogit.CommitOptions{Author: testSig()})
+
+	old := os.Stderr
+	r, wp, _ := os.Pipe()
+	os.Stderr = wp
+
+	err := execCmd(t, "--dry-run", "--verbose", "--branch", "release/1.2", "--repo", dir)
+
+	wp.Close()
+	os.Stderr = old
+	out, _ := io.ReadAll(r)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !utf8.Valid(out) {
+		t.Errorf("verbose output is not valid UTF-8:\n%q", out)
+	}
+	if !strings.Contains(string(out), "...") {
+		t.Errorf("expected truncated commit line, got:\n%s", out)
 	}
 }
 
